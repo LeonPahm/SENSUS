@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Blurred Front Camera</title>
+    <style>
+        /* Tối ưu hóa hiển thị toàn màn hình điện thoại */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: Arial, sans-serif;
+        }
+
+        /* Container chứa video */
+        .video-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Thẻ video hiển thị cam trước */
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Phủ kín màn hình không bị méo */
+            transform: scaleX(-1); /* Lật gương để giống như nhìn vào gương */
+            filter: blur(10px); /* Độ mờ mặc định ban đầu */
+            transition: filter 0.1s ease;
+        }
+
+        /* Thanh điều khiển độ mờ */
+        .controls {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px 25px;
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            width: 80%;
+            max-width: 400px;
+        }
+
+        .controls label {
+            color: #fff;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        .controls input[type="range"] {
+            flex-grow: 1;
+            accent-color: #007bff; /* Màu của nút kéo */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="video-container">
+        <video id="webcam" autoplay playsinline muted></video>
+    </div>
+
+    <div class="controls">
+        <label for="blur-slider">Độ mờ:</label>
+        <input type="range" id="blur-slider" min="0" max="50" value="10">
+    </div>
+
+    <script>
+        const video = document.getElementById('webcam');
+        const blurSlider = document.getElementById('blur-slider');
+
+        // 1. Hàm yêu cầu quyền và kích hoạt Camera trước
+        async function initCamera() {
+            const constraints = {
+                video: {
+                    // Ưu tiên sử dụng camera trước (user)
+                    facingMode: "user", 
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false // Không cần micro
+            };
+
+            try {
+                // Trình duyệt sẽ tự động hiện Pop-up hỏi quyền truy cập ở đây
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+            } catch (error) {
+                console.error("Lỗi khi truy cập camera: ", error);
+                alert("Không thể truy cập camera trước. Hãy đảm bảo bạn đã cấp quyền và trang web chạy trên HTTPS.");
+            }
+        }
+
+        // 2. Lắng nghe sự kiện thanh trượt để thay đổi mức độ Gaussian Blur
+        blurSlider.addEventListener('input', (e) => {
+            const blurValue = e.target.value;
+            video.style.filter = `blur(${blurValue}px)`;
+        });
+
+        // Tự động chạy khi trang web tải xong
+        window.addEventListener('DOMContentLoaded', initCamera);
+    </script>
+</body>
+</html>
