@@ -2,14 +2,15 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Blurred Back Camera</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>VR Curved Pass-Through</title>
     <style>
-        /* Tối ưu hóa toàn màn hình và loại bỏ các khoảng trống */
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
+            -webkit-user-select: none;
+            user-select: none;
         }
         
         body, html {
@@ -17,129 +18,226 @@
             height: 100%;
             overflow: hidden;
             background-color: #000;
-            font-family: Arial, sans-serif;
-            position: fixed; /* Giữ màn hình cố định trên iOS */
+            position: fixed; 
+            top: 0;
+            left: 0;
         }
 
-        /* Container chứa video, đảm bảo lấp đầy màn hình */
+        /* Container chứa canvas 3D hiển thị hiệu ứng VR */
         .video-container {
             position: absolute;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            width: 100vw;
+            height: 100vh;
             z-index: 1;
         }
 
-        /* Thẻ video hiển thị cam sau */
-        video {
+        canvas {
             width: 100%;
             height: 100%;
-            object-fit: cover; /* Phủ kín màn hình, có thể bị cắt một chút */
-            
-            /* Gaussian Blur mặc định */
-            filter: blur(15px);
-            -webkit-filter: blur(15px); /* Hỗ trợ Safari/iOS */
-            
-            transition: filter 0.1s ease;
+            display: block;
         }
 
-        /* Thanh điều khiển độ mờ */
-        .controls {
+        /* Thanh điều khiển tàng hình nhận diện vuốt chạm toàn màn hình */
+        .controls-overlay {
             position: fixed;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             z-index: 10;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 15px 30px;
-            border-radius: 40px;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            width: 85%;
-            max-width: 450px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            opacity: 0; 
+            touch-action: none;
         }
 
-        .controls label {
-            color: #fff;
-            font-size: 16px;
-            white-space: nowrap;
-            font-weight: bold;
-        }
-
-        .controls input[type="range"] {
-            flex-grow: 1;
-            accent-color: #007bff; /* Màu nút kéo */
-            height: 8px;
+        .controls-overlay input[type="range"] {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
             cursor: pointer;
         }
     </style>
+    <!-- Tích hợp thư viện Three.js để xử lý bẻ cong hình ảnh bằng công nghệ 3D -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
-    <div class="video-container">
-        <video id="webcam" autoplay playsinline muted></video>
+    <div class="video-container" id="canvas-container">
+        <!-- Thay thế thẻ video cũ bằng Canvas 3D để dựng luồng thấu kính cong VR -->
     </div>
 
-    <div class="controls">
-        <label for="blur-slider">Mờ:</label>
+    <!-- Giữ nguyên logic thanh điều khiển ẩn -->
+    <div class="controls-overlay">
         <input type="range" id="blur-slider" min="0" max="80" value="15">
     </div>
+
+    <!-- Tạo một thẻ video ẩn dưới nền để nạp dữ liệu camera vào bộ dựng hình 3D -->
+    <video id="webcam" autoplay playsinline muted style="display:none;"></video>
 
     <script>
         const video = document.getElementById('webcam');
         const blurSlider = document.getElementById('blur-slider');
+        let renderer, scene, camera, texture, material, mesh;
+        let currentBlur = 15;
 
-        // Hàm yêu cầu quyền và kích hoạt Camera SAU
+        // 1. Giữ nguyên logic khởi tạo Camera Sau
         async function initCamera() {
-            // Cấu hình bắt buộc (exact) sử dụng camera sau độc quyền
             const constraints = {
                 video: {
-                    facingMode: { exact: "environment" }, // CHỈ ĐỊNH CAMERA SAU
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 }
+                    facingMode: { exact: "environment" },
+                    width: { ideal: 3840 }, 
+                    height: { ideal: 2160 }
                 },
-                audio: false // Không cần micro
+                audio: false
             };
 
             try {
-                // Trình duyệt sẽ hiện Pop-up hỏi quyền truy cập camera
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
+                video.addEventListener('loadedmetadata', initVRScene);
             } catch (error) {
-                console.error("Lỗi camera:", error);
-                
-                // Phương án dự phòng: nếu điện thoại không hỗ trợ exact, thử lại chế độ ưu tiên
-                console.warn("Không ép được cấu hình nghiêm ngặt, thử chế độ ưu tiên tự động...");
+                console.warn("Không ép được cấu hình exact, chuyển sang chế độ linh hoạt...");
                 try {
                     const fallbackConstraints = {
-                        video: { facingMode: "environment" }, // ƯU TIÊN CAMERA SAU
+                        video: { facingMode: "environment" },
                         audio: false
                     };
                     const stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
                     video.srcObject = stream;
+                    video.addEventListener('loadedmetadata', initVRScene);
                 } catch (fallbackError) {
-                    console.error("Lỗi camera (fallback):", fallbackError);
-                    alert("Không thể truy cập camera sau. Hãy đảm bảo bạn đã cấp quyền camera cho trình duyệt và đang chạy trên HTTPS.");
+                    alert("Yêu cầu chạy trang web qua giao thức HTTPS và cấp quyền camera để kích hoạt chế độ VR.");
                 }
             }
         }
 
-        // Lắng nghe sự kiện thanh trượt để thay đổi mức độ Gaussian Blur
+        // 2. Logic Mới: Dựng thấu kính cong kiểu VR (Fish-eye bằng WebGL Shader)
+        function initVRScene() {
+            const container = document.getElementById('canvas-container');
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+
+            // Tạo khung cảnh 3D
+            scene = new THREE.Scene();
+            camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+            // Đưa luồng video vào làm kết cấu (Texture) trong không gian 3D
+            texture = new THREE.VideoTexture(video);
+            
+            // Đoạn mã Custom Shader để bẻ cong hình ảnh theo chuẩn kính VR (Barrel Distortion)
+            const vertexShader = `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = vec4(position, 1.0);
+                }
+            `;
+
+            const fragmentShader = `
+                uniform sampler2D tDiffuse;
+                uniform float uBlur;
+                varying vec2 vUv;
+
+                // Hàm giả lập bẻ cong thấu kính lồi VR
+                vec2 distort(vec2 uv) {
+                    vec2 cc = uv - 0.5;
+                    float dist = dot(cc, cc);
+                    // Chỉ số 0.25 quyết định độ cong lồi của VR, tăng lên nếu muốn cong hơn
+                    return uv + cc * dist * 0.25; 
+                }
+
+                void main() {
+                    // Áp dụng độ cong
+                    vec2 distortedUv = distort(vUv);
+                    
+                    // Chặn các góc bị lẹm viền đen ngoài khung hình của thấu kính
+                    if (distortedUv.x < 0.0 || distortedUv.x > 1.0 || distortedUv.y < 0.0 || distortedUv.y > 1.0) {
+                        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+                        return;
+                    }
+
+                    // Giữ nguyên logic tính toán độ mờ (Blur) bằng Shader
+                    vec4 color = vec4(0.0);
+                    float total = 0.0;
+                    float radius = uBlur / 1000.0;
+                    
+                    // Tạo hiệu ứng nhòe Gaussian mượt mà trực tiếp trên Shader
+                    if (radius > 0.0) {
+                        for (float x = -4.0; x <= 4.0; x += 1.0) {
+                            for (float y = -4.0; y <= 4.0; y += 1.0) {
+                                vec2 offset = vec2(x, y) * (radius / 4.0);
+                                color += texture2D(tDiffuse, distortedUv + offset);
+                                total += 1.0;
+                            }
+                        }
+                        gl_FragColor = color / total;
+                    } else {
+                        gl_FragColor = texture2D(tDiffuse, distortedUv);
+                    }
+                }
+            `;
+
+            // Khởi tạo vật liệu chứa Shader thấu kính VR
+            material = new THREE.ShaderMaterial({
+                uniforms: {
+                    tDiffuse: { value: texture },
+                    uBlur: { value: currentBlur }
+                },
+                vertexShader: vertexShader,
+                fragmentShader: fragmentShader
+            });
+
+            // Phủ vật liệu lên toàn màn hình
+            const geometry = new THREE.PlaneGeometry(2, 2);
+            mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
+
+            // Thiết lập bộ dựng hình (Renderer)
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            // Vòng lặp cập nhật hình ảnh liên tục (Render Loop)
+            function animate() {
+                requestAnimationFrame(animate);
+                renderer.render(scene, camera);
+            }
+            animate();
+
+            // Tự động căn chỉnh khi xoay ngang/dọc điện thoại
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function onWindowResize() {
+            if (renderer) {
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        }
+
+        // 3. Giữ nguyên logic lắng nghe thanh trượt để thay đổi mức độ mờ
         blurSlider.addEventListener('input', (e) => {
-            const blurValue = e.target.value;
-            video.style.filter = `blur(${blurValue}px)`;
-            video.style.webkitFilter = `blur(${blurValue}px)`; // Hỗ trợ Safari
+            currentBlur = parseFloat(e.target.value);
+            if (material) {
+                material.uniforms.uBlur.value = currentBlur;
+            }
         });
 
-        // Tự động chạy khi trang web tải xong
+        // 4. Giữ nguyên logic kích hoạt Fullscreen khi chạm vào màn hình
+        function enterFullScreen() {
+            const docElm = document.documentElement;
+            if (docElm.requestFullscreen) docElm.requestFullscreen();
+            else if (docElm.webkitRequestFullScreen) docElm.webkitRequestFullScreen();
+            else if (docElm.mozRequestFullScreen) docElm.mozRequestFullScreen();
+            else if (docElm.msRequestFullscreen) docElm.msRequestFullscreen();
+        }
+
+        window.addEventListener('click', enterFullScreen, { once: true });
+        window.addEventListener('touchstart', enterFullScreen, { once: true });
+
         window.addEventListener('DOMContentLoaded', initCamera);
     </script>
 </body>
 </html>
-    
