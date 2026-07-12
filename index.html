@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>VR Curved Pass-Through SBS</title>
+    <title>VR Pass-Through Fix</title>
     <style>
         * {
             box-sizing: border-box;
@@ -38,14 +38,13 @@
             display: block;
         }
 
-        /* Thanh điều khiển độ mờ nằm gọn bên phải màn hình */
         .blur-control-container {
             position: fixed;
             right: 20px;
             top: 50%;
             transform: translateY(-50%);
             z-index: 10;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(0, 0, 0, 0.6);
             padding: 15px 10px;
             border-radius: 20px;
             display: flex;
@@ -55,7 +54,6 @@
             color: #fff;
             font-family: sans-serif;
             font-size: 12px;
-            pointer-events: auto;
         }
 
         .blur-control-container input[type="range"] {
@@ -90,8 +88,8 @@
             const constraints = {
                 video: {
                     facingMode: { exact: "environment" },
-                    width: { ideal: 3840 }, 
-                    height: { ideal: 2160 }
+                    width: { ideal: 1920 }, 
+                    height: { ideal: 1080 }
                 },
                 audio: false
             };
@@ -103,31 +101,26 @@
             } catch (error) {
                 try {
                     const fallbackConstraints = {
-                        video: { facingMode: "environment" },
-                        audio: false
+                        video: { facingMode: "environment" }
                     };
                     const stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
                     video.srcObject = stream;
                     video.addEventListener('loadedmetadata', initVRScene);
                 } catch (fallbackError) {
-                    alert("Hãy chạy web bằng HTTPS và cấp quyền camera.");
+                    alert("Yêu cầu HTTPS và quyền camera.");
                 }
             }
         }
 
         function initVRScene() {
             const container = document.getElementById('canvas-container');
-            const width = window.innerWidth;
-            const height = window.innerHeight;
 
             scene = new THREE.Scene();
-            
-            // Sử dụng OrthographicCamera để hiển thị mặt phẳng 2D phẳng/cong trực diện
             camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
             texture = new THREE.VideoTexture(video);
             
-            // Shader bẻ cong góc nhìn dạng Barrel Distortion áp dụng riêng cho từng nửa màn hình
+            // Shader được nâng cấp: Tự căn tỷ lệ (Aspect Ratio) và bẻ cong lồi không góc chết
             const vertexShader = `
                 varying vec2 vUv;
                 void main() {
@@ -139,31 +132,35 @@
             const fragmentShader = `
                 uniform sampler2D tDiffuse;
                 uniform float uBlur;
+                uniform float uIsPortrait;
                 varying vec2 vUv;
 
                 vec2 distort(vec2 uv) {
                     vec2 cc = uv - 0.5;
                     float dist = dot(cc, cc);
-                    // 0.35 là độ cong lồi VR (tăng nếu muốn cong hơn nữa)
-                    return uv + cc * dist * 0.35; 
+                    return uv + cc * dist * 0.40; // Tăng nhẹ độ căng thấu kính VR
                 }
 
                 void main() {
-                    vec2 distortedUv = distort(vUv);
-                    
-                    if (distortedUv.x < 0.0 || distortedUv.x > 1.0 || distortedUv.y < 0.0 || distortedUv.y > 1.0) {
-                        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-                        return;
+                    // Nếu điện thoại đang dựng dọc, xoay UV mã nguồn camera đi 90 độ để ảnh chuẩn VR nằm ngang
+                    vec2 correctedUv = vUv;
+                    if (uIsPortrait > 0.5) {
+                        correctedUv = vec2(vUv.y, 1.0 - vUv.x);
                     }
+
+                    vec2 distortedUv = distort(correctedUv);
+                    
+                    // Xóa vạch đen bằng cách ép biên lặp (Clamp edge) thay vì cắt viền đen màu mục tiêu
+                    distortedUv = clamp(distortedUv, 0.001, 0.999);
 
                     vec4 color = vec4(0.0);
                     float total = 0.0;
                     float radius = uBlur / 1000.0;
                     
                     if (radius > 0.0) {
-                        for (float x = -4.0; x <= 4.0; x += 1.0) {
-                            for (float y = -4.0; y <= 4.0; y += 1.0) {
-                                vec2 offset = vec2(x, y) * (radius / 4.0);
+                        for (float x = -3.0; x <= 3.0; x += 1.0) {
+                            for (float y = -3.0; y <= 3.0; y += 1.0) {
+                                vec2 offset = vec2(x, y) * (radius / 3.0);
                                 color += texture2D(tDiffuse, distortedUv + offset);
                                 total += 1.0;
                             }
@@ -178,50 +175,42 @@
             material = new THREE.ShaderMaterial({
                 uniforms: {
                     tDiffuse: { value: texture },
-                    uBlur: { value: currentBlur }
+                    uBlur: { value: currentBlur },
+                    uIsPortrait: { value: window.innerHeight > window.innerWidth ? 1.0 : 0.0 }
                 },
                 vertexShader: vertexShader,
                 fragmentShader: fragmentShader
             });
 
-            // Tạo mắt TRÁI (Nửa màn hình bên trái)
+            // Mesh mắt Trái
             const geoLeft = new THREE.BufferGeometry();
-            const verticesLeft = new Float32Array([
-                -1.0,  1.0, 0.0, // Top-Left
-                 0.0,  1.0, 0.0, // Top-Right
-                -1.0, -1.0, 0.0, // Bottom-Left
-                 0.0, -1.0, 0.0  // Bottom-Right
-            ]);
-            const uvsLeft = new Float32Array([
-                0.0, 1.0,
-                1.0, 1.0,
-                0.0, 0.0,
-                1.0, 0.0
-            ]);
-            const indices = [0, 2, 1, 2, 3, 1];
-            geoLeft.setAttribute('position', new THREE.BufferAttribute(verticesLeft, 3));
-            geoLeft.setAttribute('uv', new THREE.BufferAttribute(uvsLeft, 2));
-            geoLeft.setIndex(indices);
+            geoLeft.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+                -1.0,  1.0, 0.0,
+                 0.0,  1.0, 0.0,
+                -1.0, -1.0, 0.0,
+                 0.0, -1.0, 0.0
+            ]), 3));
+            geoLeft.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0,1, 1,1, 0,0, 1,0]), 2));
+            geoLeft.setIndex([0, 2, 1, 2, 3, 1]);
             meshLeft = new THREE.Mesh(geoLeft, material);
             scene.add(meshLeft);
 
-            // Tạo mắt PHẢI (Nửa màn hình bên phải)
+            // Mesh mắt Phải
             const geoRight = new THREE.BufferGeometry();
-            const verticesRight = new Float32Array([
+            geoRight.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
                  0.0,  1.0, 0.0,
                  1.0,  1.0, 0.0,
                  0.0, -1.0, 0.0,
                  1.0, -1.0, 0.0
-            ]);
-            geoRight.setAttribute('position', new THREE.BufferAttribute(verticesRight, 3));
-            geoRight.setAttribute('uv', new THREE.BufferAttribute(uvsLeft, 2)); // Dùng chung hệ tọa độ UV để lấy trọn camera
-            geoRight.setIndex(indices);
+            ]), 3));
+            geoRight.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0,1, 1,1, 0,0, 1,0]), 2));
+            geoRight.setIndex([0, 2, 1, 2, 3, 1]);
             meshRight = new THREE.Mesh(geoRight, material);
             scene.add(meshRight);
 
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(width, height);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             container.appendChild(renderer.domElement);
 
             function animate() {
@@ -231,62 +220,43 @@
             animate();
 
             window.addEventListener('resize', onWindowResize);
+            window.addEventListener('orientationchange', onWindowResize);
         }
 
         function onWindowResize() {
-            if (renderer) {
-                renderer.setSize(window.innerWidth, window.innerHeight);
+            if (renderer && material) {
+                const w = window.innerWidth;
+                const h = window.innerHeight;
+                renderer.setSize(w, h);
+                // Cập nhật trạng thái xoay màn hình vào Shader để tính toán lại hướng camera
+                material.uniforms.uIsPortrait.value = h > w ? 1.0 : 0.0;
             }
         }
 
         blurSlider.addEventListener('input', (e) => {
             currentBlur = parseFloat(e.target.value);
-            if (material) {
-                material.uniforms.uBlur.value = currentBlur;
-            }
+            if (material) material.uniforms.uBlur.value = currentBlur;
         });
 
-        // Kích hoạt Fullscreen và khóa xoay màn hình Ngang (Landscape)
         async function activateVRMode() {
             const docElm = document.documentElement;
+            if (docElm.requestFullscreen) {
+                await docElm.requestFullscreen().catch(() => {});
+            } else if (docElm.webkitRequestFullScreen) {
+                await docElm.webkitRequestFullScreen().catch(() => {});
+            }
             
-            // Vào chế độ toàn màn hình
-            try {
-                if (docElm.requestFullscreen) await docElm.requestFullscreen();
-                else if (docElm.webkitRequestFullScreen) await docElm.webkitRequestFullScreen();
-            } catch (err) {
-                console.log("Không thể tự động vào Fullscreen.");
-            }
-
-            // Khóa màn hình nằm ngang
             if (screen.orientation && screen.orientation.lock) {
-                try {
-                    await screen.orientation.lock('landscape');
-                } catch (err) {
-                    console.log("Thiết bị không hỗ trợ khóa hướng xoay tự động.");
-                }
+                await screen.orientation.lock('landscape').catch(() => {});
             }
 
-            // Kích hoạt chống tắt màn hình (Wake Lock)
-            requestWakeLock();
-        }
-
-        // Logic giữ cho màn hình luôn bật (Không bị tắt/ngủ)
-        async function requestWakeLock() {
             if ('wakeLock' in navigator) {
-                try {
-                    wakeLock = await navigator.wakeLock.request('screen');
-                    console.log('Chống tắt màn hình đã được kích hoạt!');
-                } catch (err) {
-                    console.error(`${err.name}, ${err.message}`);
-                }
+                try { wakeLock = await navigator.wakeLock.request('screen'); } catch (x) {}
             }
         }
 
-        // Đăng ký kích hoạt khi chạm lần đầu vào màn hình
         window.addEventListener('click', activateVRMode, { once: true });
         window.addEventListener('touchstart', activateVRMode, { once: true });
-
         window.addEventListener('DOMContentLoaded', initCamera);
     </script>
 </body>
