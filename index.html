@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>VR Passthrough Fix - Auto Rotate</title>
+    <title>VR Passthrough - Trái Phải Chuẩn YouTube</title>
     <style>
         body, html {
             margin: 0;
@@ -16,40 +16,40 @@
         }
         #ui-container {
             position: absolute;
-            bottom: 20px;
+            bottom: 15px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 10;
-            background: rgba(0, 0, 0, 0.6);
-            padding: 12px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px 20px;
             border-radius: 8px;
             color: white;
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 8px;
-            width: 85%;
-            max-width: 360px;
+            width: 70%;
+            max-width: 350px;
         }
         .slider-group {
             display: flex;
             align-items: center;
             width: 100%;
             justify-content: space-between;
-            font-size: 13px;
+            font-size: 12px;
         }
         input[type=range] {
-            width: 55%;
+            width: 60%;
         }
         button {
-            padding: 10px 20px;
+            padding: 8px 16px;
             border: none;
-            border-radius: 5px;
-            background: #00E676;
-            color: black;
+            border-radius: 4px;
+            background: #ff5722;
+            color: white;
             font-weight: bold;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
         }
         .hidden { display: none !important; }
     </style>
@@ -58,14 +58,14 @@
 <body>
 
     <div id="ui-container">
-        <button id="start-btn">KÍCH HOẠT CAMERA VR</button>
+        <button id="start-btn">BẮT ĐẦU XEM VR</button>
         <div class="slider-group">
-            <label for="blur-slider">Độ mờ (Blur):</label>
-            <input type="range" id="blur-slider" min="0" max="0.1" step="0.005" value="0.02">
+            <label>Độ mờ (Blur):</label>
+            <input type="range" id="blur-slider" min="0" max="0.08" step="0.002" value="0.01">
         </div>
         <div class="slider-group">
-            <label for="fish-slider">Độ cong kính VR:</label>
-            <input type="range" id="fish-slider" min="0" max="1" step="0.05" value="0.25">
+            <label>Độ cong thấu kính:</label>
+            <input type="range" id="fish-slider" min="0" max="0.8" step="0.05" value="0.3">
         </div>
     </div>
 
@@ -80,7 +80,7 @@
 
         let scene, camera, renderer, videoTexture, shaderMaterial;
 
-        const CustomVRShader = {
+        const VRShader = {
             vertexShader: `
                 varying vec2 vUv;
                 void main() {
@@ -92,86 +92,84 @@
                 uniform sampler2D tDiffuse;
                 uniform float uBlur;
                 uniform float uDistortion;
-                uniform int uRotateVideo; // 1 nếu cần xoay 90 độ, 0 nếu không
                 varying vec2 vUv;
 
-                vec2 barrelDistortion(vec2 coord, float amt) {
-                    vec2 cc = coord - 0.5;
+                // Hàm tạo độ cong thấu kính VR (Barrel Distortion) cho từng mắt
+                vec2 applyFisheye(vec2 uv, float amt) {
+                    vec2 cc = uv - 0.5;
                     float dist = dot(cc, cc);
-                    return coord + cc * dist * amt;
+                    return uv + cc * dist * amt;
                 }
 
-                vec4 boxBlur(sampler2D tex, vec2 uv, float intensity) {
+                // Bộ lọc làm mờ ảnh mượt mà
+                vec4 applyBlur(sampler2D tex, vec2 uv, float intensity) {
                     vec4 color = vec4(0.0);
-                    float count = 0.0;
+                    float total = 0.0;
                     for (float x = -2.0; x <= 2.0; x++) {
                         for (float y = -2.0; y <= 2.0; y++) {
-                            vec2 offset = vec2(x, y) * intensity * 0.1;
+                            vec2 offset = vec2(x, y) * intensity * 0.05;
                             color += texture2D(tex, uv + offset);
-                            count += 1.0;
+                            total += 1.0;
                         }
                     }
-                    return color / count;
+                    return color / total;
                 }
 
                 void main() {
                     vec2 uv = vUv;
-                    
-                    // CHIA ĐÔI MÀN HÌNH THEO TRỤC NGANG (Chuẩn VR khi nằm ngang)
-                    bool isRightEye = uv.x > 0.5;
-                    if (isRightEye) {
+
+                    // 1. CHIA ĐÔI MÀN HÌNH: Trái và Phải hoàn chỉnh (Đường cắt dọc ở giữa máy nằm ngang)
+                    bool isRight = uv.x > 0.5;
+                    if (isRight) {
                         uv.x = (uv.x - 0.5) * 2.0;
                     } else {
                         uv.x = uv.x * 2.0;
                     }
 
-                    // Áp dụng hiệu ứng mắt cá cho từng bên mắt
-                    uv = barrelDistortion(uv, uDistortion);
+                    // 2. ÁP DỤNG HIỆU ỨNG MẮT CÁ (Fisheye cho từng ô mắt)
+                    uv = applyFisheye(uv, uDistortion);
 
-                    // Khử vùng thừa ngoài thấu kính
+                    // Cắt các góc đen dư thừa sau khi bo cong thấu kính
                     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
                         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
                         return;
                     }
 
-                    // XỬ LÝ XOAY ĐỨNG HÌNH ẢNH CAMERA:
-                    // Khi điện thoại nằm ngang, luồng camera di động thường bị nghiêng 90 độ.
-                    // Ta tiến hành xoay lại hệ tọa độ lấy mẫu Texture để hình ảnh đứng thẳng.
-                    vec2 texCoord = uv;
-                    if (uRotateVideo == 1) {
-                        texCoord = vec2(uv.y, 1.0 - uv.x); 
-                    }
+                    // 3. ĐỊNH HƯỚNG LẠI CAMERA CHO ĐỨNG THẲNG
+                    // Khi điện thoại nằm ngang, luồng camera bị nghiêng 90 độ, ta xoay UV lấy mẫu texture ngược lại để ảnh đứng thẳng.
+                    // Đồng thời căn chỉnh lại tỉ lệ (Aspect Ratio) để hình không bị kéo giãn theo chiều ngang.
+                    vec2 texCoord;
+                    texCoord.x = uv.y; 
+                    texCoord.y = 1.0 - uv.x;
 
-                    // Lấy mẫu màu kèm hiệu ứng làm mờ
-                    gl_FragColor = boxBlur(tDiffuse, texCoord, uBlur);
+                    // Thu hẹp vùng lấy mẫu ở giữa camera để hình ảnh không bị "bẹp" ngang khi đưa vào khung dọc
+                    texCoord.x = texCoord.x * 0.6 + 0.2; 
+
+                    // Render hình ảnh kết hợp mờ tùy chỉnh
+                    gl_FragColor = applyBlur(tDiffuse, texCoord, uBlur);
                 }
             `
         };
 
         async function initCamera() {
             try {
-                const constraints = {
+                const stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: { exact: "environment" },
                         width: { ideal: 1920 },
                         height: { ideal: 1080 }
                     },
                     audio: false
-                };
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                });
                 video.srcObject = stream;
                 video.play();
-                
-                // Đợi video load cấu hình metadata để lấy đúng hướng gốc
-                video.onloadedmetadata = () => {
-                    setupThreeJS();
-                };
+                video.onloadedmetadata = () => setupThreeJS();
             } catch (err) {
-                // Fallback nếu không có cam sau (hoặc đang test máy tính)
+                // Fallback nếu test trên máy tính hoặc không lấy được cam sau chính xác
                 const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 video.srcObject = fallbackStream;
                 video.play();
-                video.onloadedmetadata = () => { setupThreeJS(); };
+                video.onloadedmetadata = () => setupThreeJS();
             }
         }
 
@@ -184,28 +182,22 @@
             document.body.appendChild(renderer.domElement);
 
             videoTexture = new THREE.VideoTexture(video);
-            
-            // Kiểm tra xem màn hình đang dọc hay ngang để quyết định xoay luồng cam trong Shader
-            const shouldRotate = window.innerWidth > window.innerHeight ? 1 : 0;
-
-            const uniforms = {
-                tDiffuse: { value: videoTexture },
-                uBlur: { value: parseFloat(blurSlider.value) },
-                uDistortion: { value: parseFloat(fishSlider.value) },
-                uRotateVideo: { value: shouldRotate }
-            };
 
             shaderMaterial = new THREE.ShaderMaterial({
-                uniforms: uniforms,
-                vertexShader: CustomVRShader.vertexShader,
-                fragmentShader: CustomVRShader.fragmentShader
+                uniforms: {
+                    tDiffuse: { value: videoTexture },
+                    uBlur: { value: parseFloat(blurSlider.value) },
+                    uDistortion: { value: parseFloat(fishSlider.value) }
+                },
+                vertexShader: VRShader.vertexShader,
+                fragmentShader: VRShader.fragmentShader
             });
 
             const geometry = new THREE.PlaneGeometry(2, 2);
             const mesh = new THREE.Mesh(geometry, shaderMaterial);
             scene.add(mesh);
 
-            // Cập nhật giá trị khi kéo thanh trượt
+            // Gán sự kiện thay đổi thanh trượt liên tục
             blurSlider.addEventListener('input', (e) => { shaderMaterial.uniforms.uBlur.value = parseFloat(e.target.value); });
             fishSlider.addEventListener('input', (e) => { shaderMaterial.uniforms.uDistortion.value = parseFloat(e.target.value); });
 
@@ -215,10 +207,6 @@
 
         function onWindowResize() {
             renderer.setSize(window.innerWidth, window.innerHeight);
-            // Cập nhật lại trạng thái xoay hình khi người dùng đổi góc cầm máy
-            if (shaderMaterial) {
-                shaderMaterial.uniforms.uRotateVideo.value = window.innerWidth > window.innerHeight ? 1 : 0;
-            }
         }
 
         function animate() {
