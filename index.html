@@ -1,11 +1,12 @@
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Camera Background Overlay</title>
+    <title>VR Low Vision Simulator</title>
     <style>
-        /* Xóa khoảng trắng thừa và cố định màn hình */
+        /* Tối ưu hóa hiển thị toàn màn hình và chống tràn dữ liệu */
         * {
             margin: 0;
             padding: 0;
@@ -17,123 +18,155 @@
             overflow: hidden;
             background-color: #000;
             font-family: Arial, sans-serif;
+            user-select: none;
         }
 
-        /* Video camera tràn toàn màn hình, nằm ở dưới cùng */
-        #camera-view {
+        /* Khung chứa giao diện chia đôi màn hình VR */
+        .vr-container {
+            display: flex;
+            width: 100%;
+            height: 100%;
             position: absolute;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
             z-index: 1;
-            /* Lật ngược video giống như đang soi gương cho tự nhiên */
-            transform: scaleX(-1); 
-            opacity: 1; /* Mặc định hiển thị rõ ràng */
-            transition: opacity 0.1s ease;
         }
 
-        /* Nội dung giả lập phía sau hoặc chữ trên màn hình (nếu có) */
-        .content-bg {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
+        /* Cấu hình cho từng mắt (Trái & Phải) */
+        .vr-view {
+            flex: 1;
             height: 100%;
+            position: relative;
+            overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
-            z-index: 0;
-            color: #fff;
-            text-align: center;
-            padding: 20px;
+            background: #000;
+            /* Tạo đường viền giả lập thấu kính VR Cardboard tròn nhẹ */
+            padding: 10px;
         }
 
-        /* Thanh điều khiển nằm trên cùng */
+        /* Thẻ video hiển thị camera của từng mắt */
+        .vr-view video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 40px; /* Bo góc giống ảnh mẫu Google Cardboard */
+            /* Lập gương trục X để nhìn tự nhiên như mắt thường */
+            transform: scaleX(-1); 
+            
+            /* Áp dụng bộ lọc Gaussian Blur mặc định */
+            filter: blur(10px); 
+            transition: filter 0.05s linear;
+        }
+
+        /* Vạch đen phân tách 2 mắt ở chính giữa màn hình */
+        .center-divider {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            width: 4px;
+            height: 100%;
+            background: #111;
+            transform: translateX(-50%);
+            z-index: 5;
+        }
+
+        /* Thanh điều khiển tăng giảm độ nhòe */
         .controls {
             position: absolute;
-            bottom: 30px;
+            bottom: 25px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 10;
-            background: rgba(0, 0, 0, 0.6);
-            padding: 15px 25px;
+            background: rgba(20, 20, 20, 0.85);
+            padding: 15px 30px;
             border-radius: 30px;
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 15px;
-            backdrop-filter: blur(5px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            gap: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .controls label {
             color: #fff;
             font-size: 14px;
-            white-space: nowrap;
+            font-weight: bold;
+            letter-spacing: 0.5px;
         }
 
-        /* Custom lại thanh trượt nhìn cho hiện đại */
         .controls input[type="range"] {
-            width: 200px;
+            width: 260px;
+            height: 8px;
             cursor: pointer;
         }
     </style>
 </head>
 <body>
 
-    <!-- Lớp chữ/nền ở dưới cùng (sẽ lộ ra khi bạn làm mờ camera) -->
-    <div class="content-bg">
-        <div>
-            <h1>Màn hình chính</h1>
-            <p>Kéo thanh trượt bên dưới để làm mờ lớp camera trước.</p>
+    <!-- Vạch chia đôi kính VR -->
+    <div class="center-divider"></div>
+
+    <!-- Khu vực hiển thị VR -->
+    <div class="vr-container">
+        <!-- Mắt trái -->
+        <div class="vr-view">
+            <video id="left-cam" autoplay playsinline muted></video>
+        </div>
+        <!-- Mắt phải -->
+        <div class="vr-view">
+            <video id="right-cam" autoplay playsinline muted></video>
         </div>
     </div>
 
-    <!-- Thành phần video để hiển thị camera -->
-    <video id="camera-view" autoplay playsinline muted></video>
-
-    <!-- Thanh điều khiển độ mờ -->
+    <!-- Thanh trượt điều chỉnh mức độ mô phỏng khiếm thị -->
     <div class="controls">
-        <label for="opacity-slider">Độ rõ camera: <span id="opacity-val">100</span>%</label>
-        <input type="range" id="opacity-slider" min="0" max="100" value="100">
+        <label for="blur-slider">Mức độ mờ (Blur): <span id="blur-val">10</span>px</label>
+        <input type="range" id="blur-slider" min="0" max="50" value="10">
     </div>
 
     <script>
-        const video = document.getElementById('camera-view');
-        const slider = document.getElementById('opacity-slider');
-        const opacityVal = document.getElementById('opacity-val');
+        const leftCam = document.getElementById('left-cam');
+        const rightCam = document.getElementById('right-cam');
+        const slider = document.getElementById('blur-slider');
+        const blurVal = document.getElementById('blur-val');
 
-        // 1. Hàm kích hoạt camera trước (user)
-        async function initCamera() {
+        // Hàm kích hoạt camera trước và truyền vào cả 2 màn hình VR
+        async function initVRCamera() {
             try {
                 const constraints = {
                     video: {
-                        // Ưu tiên gọi camera trước trên điện thoại
-                        facingMode: "user" 
+                        facingMode: "user", // Gọi camera trước
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
                     },
-                    audio: false // Không cần âm thanh
+                    audio: false
                 };
                 
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                video.srcObject = stream;
+                
+                // Gán cùng một luồng stream cho cả 2 thẻ video trái và phải
+                leftCam.srcObject = stream;
+                rightCam.srcObject = stream;
             } catch (error) {
-                console.error("Không thể truy cập camera:", error);
-                alert("Không thể truy cập camera. Vui lòng cấp quyền cho trang web!");
+                console.error("Lỗi truy cập camera:", error);
+                alert("Vui lòng cấp quyền truy cập camera trước để trải nghiệm giả lập VR!");
             }
         }
 
-        // 2. Lắng nghe sự kiện kéo thanh trượt để chỉnh độ mờ
+        // Lắng nghe sự kiện kéo thanh trượt để đổi độ nhòe Gaussian Blur
         slider.addEventListener('input', (e) => {
             const value = e.target.value;
-            // Cập nhật số hiển thị
-            opacityVal.textContent = value;
-            // Thay đổi opacity của video (giá trị từ 0 đến 1)
-            video.style.opacity = value / 100;
+            blurVal.textContent = value;
+            
+            // Thay đổi thuộc tính filter: blur() của CSS trên cả 2 màn hình mắt
+            leftCam.style.filter = `blur(${value}px)`;
+            rightCam.style.filter = `blur(${value}px)`;
         });
 
-        // Khởi chạy camera khi trang web tải xong
-        window.addEventListener('DOMContentLoaded', initCamera);
+        // Tự động chạy khi tải xong trang
+        window.addEventListener('DOMContentLoaded', initVRCamera);
     </script>
 </body>
 </html>
