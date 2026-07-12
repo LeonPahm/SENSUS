@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>VR Curved Pass-Through</title>
+    <title>VR Curved Pass-Through SBS</title>
     <style>
         * {
             box-sizing: border-box;
@@ -23,7 +23,6 @@
             left: 0;
         }
 
-        /* Container chứa canvas 3D hiển thị hiệu ứng VR */
         .video-container {
             position: absolute;
             top: 0;
@@ -39,50 +38,54 @@
             display: block;
         }
 
-        /* Thanh điều khiển tàng hình nhận diện vuốt chạm toàn màn hình */
-        .controls-overlay {
+        /* Thanh điều khiển độ mờ nằm gọn bên phải màn hình */
+        .blur-control-container {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
             z-index: 10;
-            opacity: 0; 
-            touch-action: none;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 10px;
+            border-radius: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            color: #fff;
+            font-family: sans-serif;
+            font-size: 12px;
+            pointer-events: auto;
         }
 
-        .controls-overlay input[type="range"] {
-            width: 100%;
-            height: 100%;
-            margin: 0;
-            padding: 0;
+        .blur-control-container input[type="range"] {
+            writing-mode: vertical-lr;
+            direction: rtl;
+            width: 20px;
+            height: 150px;
             cursor: pointer;
         }
     </style>
-    <!-- Tích hợp thư viện Three.js để xử lý bẻ cong hình ảnh bằng công nghệ 3D -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
-    <div class="video-container" id="canvas-container">
-        <!-- Thay thế thẻ video cũ bằng Canvas 3D để dựng luồng thấu kính cong VR -->
-    </div>
+    <div class="video-container" id="canvas-container"></div>
 
-    <!-- Giữ nguyên logic thanh điều khiển ẩn -->
-    <div class="controls-overlay">
+    <div class="blur-control-container">
+        <span>Mờ</span>
         <input type="range" id="blur-slider" min="0" max="80" value="15">
     </div>
 
-    <!-- Tạo một thẻ video ẩn dưới nền để nạp dữ liệu camera vào bộ dựng hình 3D -->
     <video id="webcam" autoplay playsinline muted style="display:none;"></video>
 
     <script>
         const video = document.getElementById('webcam');
         const blurSlider = document.getElementById('blur-slider');
-        let renderer, scene, camera, texture, material, mesh;
+        let renderer, scene, camera, texture, material, meshLeft, meshRight;
         let currentBlur = 15;
+        let wakeLock = null;
 
-        // 1. Giữ nguyên logic khởi tạo Camera Sau
         async function initCamera() {
             const constraints = {
                 video: {
@@ -98,7 +101,6 @@
                 video.srcObject = stream;
                 video.addEventListener('loadedmetadata', initVRScene);
             } catch (error) {
-                console.warn("Không ép được cấu hình exact, chuyển sang chế độ linh hoạt...");
                 try {
                     const fallbackConstraints = {
                         video: { facingMode: "environment" },
@@ -108,25 +110,24 @@
                     video.srcObject = stream;
                     video.addEventListener('loadedmetadata', initVRScene);
                 } catch (fallbackError) {
-                    alert("Yêu cầu chạy trang web qua giao thức HTTPS và cấp quyền camera để kích hoạt chế độ VR.");
+                    alert("Hãy chạy web bằng HTTPS và cấp quyền camera.");
                 }
             }
         }
 
-        // 2. Logic Mới: Dựng thấu kính cong kiểu VR (Fish-eye bằng WebGL Shader)
         function initVRScene() {
             const container = document.getElementById('canvas-container');
             const width = window.innerWidth;
             const height = window.innerHeight;
 
-            // Tạo khung cảnh 3D
             scene = new THREE.Scene();
+            
+            // Sử dụng OrthographicCamera để hiển thị mặt phẳng 2D phẳng/cong trực diện
             camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-            // Đưa luồng video vào làm kết cấu (Texture) trong không gian 3D
             texture = new THREE.VideoTexture(video);
             
-            // Đoạn mã Custom Shader để bẻ cong hình ảnh theo chuẩn kính VR (Barrel Distortion)
+            // Shader bẻ cong góc nhìn dạng Barrel Distortion áp dụng riêng cho từng nửa màn hình
             const vertexShader = `
                 varying vec2 vUv;
                 void main() {
@@ -140,30 +141,25 @@
                 uniform float uBlur;
                 varying vec2 vUv;
 
-                // Hàm giả lập bẻ cong thấu kính lồi VR
                 vec2 distort(vec2 uv) {
                     vec2 cc = uv - 0.5;
                     float dist = dot(cc, cc);
-                    // Chỉ số 0.25 quyết định độ cong lồi của VR, tăng lên nếu muốn cong hơn
-                    return uv + cc * dist * 0.25; 
+                    // 0.35 là độ cong lồi VR (tăng nếu muốn cong hơn nữa)
+                    return uv + cc * dist * 0.35; 
                 }
 
                 void main() {
-                    // Áp dụng độ cong
                     vec2 distortedUv = distort(vUv);
                     
-                    // Chặn các góc bị lẹm viền đen ngoài khung hình của thấu kính
                     if (distortedUv.x < 0.0 || distortedUv.x > 1.0 || distortedUv.y < 0.0 || distortedUv.y > 1.0) {
                         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
                         return;
                     }
 
-                    // Giữ nguyên logic tính toán độ mờ (Blur) bằng Shader
                     vec4 color = vec4(0.0);
                     float total = 0.0;
                     float radius = uBlur / 1000.0;
                     
-                    // Tạo hiệu ứng nhòe Gaussian mượt mà trực tiếp trên Shader
                     if (radius > 0.0) {
                         for (float x = -4.0; x <= 4.0; x += 1.0) {
                             for (float y = -4.0; y <= 4.0; y += 1.0) {
@@ -179,7 +175,6 @@
                 }
             `;
 
-            // Khởi tạo vật liệu chứa Shader thấu kính VR
             material = new THREE.ShaderMaterial({
                 uniforms: {
                     tDiffuse: { value: texture },
@@ -189,25 +184,52 @@
                 fragmentShader: fragmentShader
             });
 
-            // Phủ vật liệu lên toàn màn hình
-            const geometry = new THREE.PlaneGeometry(2, 2);
-            mesh = new THREE.Mesh(geometry, material);
-            scene.add(mesh);
+            // Tạo mắt TRÁI (Nửa màn hình bên trái)
+            const geoLeft = new THREE.BufferGeometry();
+            const verticesLeft = new Float32Array([
+                -1.0,  1.0, 0.0, // Top-Left
+                 0.0,  1.0, 0.0, // Top-Right
+                -1.0, -1.0, 0.0, // Bottom-Left
+                 0.0, -1.0, 0.0  // Bottom-Right
+            ]);
+            const uvsLeft = new Float32Array([
+                0.0, 1.0,
+                1.0, 1.0,
+                0.0, 0.0,
+                1.0, 0.0
+            ]);
+            const indices = [0, 2, 1, 2, 3, 1];
+            geoLeft.setAttribute('position', new THREE.BufferAttribute(verticesLeft, 3));
+            geoLeft.setAttribute('uv', new THREE.BufferAttribute(uvsLeft, 2));
+            geoLeft.setIndex(indices);
+            meshLeft = new THREE.Mesh(geoLeft, material);
+            scene.add(meshLeft);
 
-            // Thiết lập bộ dựng hình (Renderer)
+            // Tạo mắt PHẢI (Nửa màn hình bên phải)
+            const geoRight = new THREE.BufferGeometry();
+            const verticesRight = new Float32Array([
+                 0.0,  1.0, 0.0,
+                 1.0,  1.0, 0.0,
+                 0.0, -1.0, 0.0,
+                 1.0, -1.0, 0.0
+            ]);
+            geoRight.setAttribute('position', new THREE.BufferAttribute(verticesRight, 3));
+            geoRight.setAttribute('uv', new THREE.BufferAttribute(uvsLeft, 2)); // Dùng chung hệ tọa độ UV để lấy trọn camera
+            geoRight.setIndex(indices);
+            meshRight = new THREE.Mesh(geoRight, material);
+            scene.add(meshRight);
+
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(width, height);
             renderer.setPixelRatio(window.devicePixelRatio);
             container.appendChild(renderer.domElement);
 
-            // Vòng lặp cập nhật hình ảnh liên tục (Render Loop)
             function animate() {
                 requestAnimationFrame(animate);
                 renderer.render(scene, camera);
             }
             animate();
 
-            // Tự động căn chỉnh khi xoay ngang/dọc điện thoại
             window.addEventListener('resize', onWindowResize);
         }
 
@@ -217,7 +239,6 @@
             }
         }
 
-        // 3. Giữ nguyên logic lắng nghe thanh trượt để thay đổi mức độ mờ
         blurSlider.addEventListener('input', (e) => {
             currentBlur = parseFloat(e.target.value);
             if (material) {
@@ -225,17 +246,46 @@
             }
         });
 
-        // 4. Giữ nguyên logic kích hoạt Fullscreen khi chạm vào màn hình
-        function enterFullScreen() {
+        // Kích hoạt Fullscreen và khóa xoay màn hình Ngang (Landscape)
+        async function activateVRMode() {
             const docElm = document.documentElement;
-            if (docElm.requestFullscreen) docElm.requestFullscreen();
-            else if (docElm.webkitRequestFullScreen) docElm.webkitRequestFullScreen();
-            else if (docElm.mozRequestFullScreen) docElm.mozRequestFullScreen();
-            else if (docElm.msRequestFullscreen) docElm.msRequestFullscreen();
+            
+            // Vào chế độ toàn màn hình
+            try {
+                if (docElm.requestFullscreen) await docElm.requestFullscreen();
+                else if (docElm.webkitRequestFullScreen) await docElm.webkitRequestFullScreen();
+            } catch (err) {
+                console.log("Không thể tự động vào Fullscreen.");
+            }
+
+            // Khóa màn hình nằm ngang
+            if (screen.orientation && screen.orientation.lock) {
+                try {
+                    await screen.orientation.lock('landscape');
+                } catch (err) {
+                    console.log("Thiết bị không hỗ trợ khóa hướng xoay tự động.");
+                }
+            }
+
+            // Kích hoạt chống tắt màn hình (Wake Lock)
+            requestWakeLock();
         }
 
-        window.addEventListener('click', enterFullScreen, { once: true });
-        window.addEventListener('touchstart', enterFullScreen, { once: true });
+        // Logic giữ cho màn hình luôn bật (Không bị tắt/ngủ)
+        async function requestWakeLock() {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('Chống tắt màn hình đã được kích hoạt!');
+                } catch (err) {
+                    console.error(`${err.name}, ${err.message}`);
+                }
+            }
+        }
+
+        // Đăng ký kích hoạt khi chạm lần đầu vào màn hình
+        window.addEventListener('click', activateVRMode, { once: true });
+        window.addEventListener('touchstart', activateVRMode, { once: true });
 
         window.addEventListener('DOMContentLoaded', initCamera);
     </script>
