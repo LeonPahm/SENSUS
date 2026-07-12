@@ -2,54 +2,34 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>VR Passthrough - Trái Phải Chuẩn YouTube</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VR Passthrough - Chuẩn Tỷ Lệ</title>
     <style>
         body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
             overflow: hidden;
             background-color: #000;
             font-family: sans-serif;
         }
         #ui-container {
             position: absolute;
-            bottom: 15px;
-            left: 50%;
+            bottom: 20px; left: 50%;
             transform: translateX(-50%);
             z-index: 10;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 10px 20px;
-            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px; border-radius: 8px;
             color: white;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-            width: 70%;
-            max-width: 350px;
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+            width: 80%; max-width: 400px;
         }
         .slider-group {
-            display: flex;
-            align-items: center;
-            width: 100%;
-            justify-content: space-between;
-            font-size: 12px;
+            display: flex; align-items: center; width: 100%; justify-content: space-between;
         }
-        input[type=range] {
-            width: 60%;
-        }
+        input[type=range] { width: 60%; }
         button {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 4px;
-            background: #ff5722;
-            color: white;
-            font-weight: bold;
-            cursor: pointer;
-            font-size: 13px;
+            padding: 10px 20px; border: none; border-radius: 4px;
+            background: #2196F3; color: white; font-weight: bold; cursor: pointer;
         }
         .hidden { display: none !important; }
     </style>
@@ -58,14 +38,14 @@
 <body>
 
     <div id="ui-container">
-        <button id="start-btn">BẮT ĐẦU XEM VR</button>
+        <button id="start-btn">MỞ CAMERA VR</button>
         <div class="slider-group">
             <label>Độ mờ (Blur):</label>
-            <input type="range" id="blur-slider" min="0" max="0.08" step="0.002" value="0.01">
+            <input type="range" id="blur-slider" min="0" max="0.1" step="0.002" value="0.02">
         </div>
         <div class="slider-group">
             <label>Độ cong thấu kính:</label>
-            <input type="range" id="fish-slider" min="0" max="0.8" step="0.05" value="0.3">
+            <input type="range" id="fish-slider" min="0" max="1" step="0.05" value="0.25">
         </div>
     </div>
 
@@ -76,7 +56,6 @@
         const startBtn = document.getElementById('start-btn');
         const blurSlider = document.getElementById('blur-slider');
         const fishSlider = document.getElementById('fish-slider');
-        const uiContainer = document.getElementById('ui-container');
 
         let scene, camera, renderer, videoTexture, shaderMaterial;
 
@@ -92,16 +71,11 @@
                 uniform sampler2D tDiffuse;
                 uniform float uBlur;
                 uniform float uDistortion;
+                uniform float uEyeAspect;   // Tỷ lệ khung hình của 1 mắt (Width / Height)
+                uniform float uVideoAspect; // Tỷ lệ khung hình của Camera (Width / Height)
                 varying vec2 vUv;
 
-                // Hàm tạo độ cong thấu kính VR (Barrel Distortion) cho từng mắt
-                vec2 applyFisheye(vec2 uv, float amt) {
-                    vec2 cc = uv - 0.5;
-                    float dist = dot(cc, cc);
-                    return uv + cc * dist * amt;
-                }
-
-                // Bộ lọc làm mờ ảnh mượt mà
+                // Hàm làm mờ
                 vec4 applyBlur(sampler2D tex, vec2 uv, float intensity) {
                     vec4 color = vec4(0.0);
                     float total = 0.0;
@@ -118,35 +92,49 @@
                 void main() {
                     vec2 uv = vUv;
 
-                    // 1. CHIA ĐÔI MÀN HÌNH: Trái và Phải hoàn chỉnh (Đường cắt dọc ở giữa máy nằm ngang)
+                    // 1. CHIA ĐÔI MÀN HÌNH THEO CHIỀU DỌC
                     bool isRight = uv.x > 0.5;
-                    if (isRight) {
-                        uv.x = (uv.x - 0.5) * 2.0;
-                    } else {
-                        uv.x = uv.x * 2.0;
-                    }
+                    vec2 eyeUv = uv;
+                    eyeUv.x = isRight ? (uv.x - 0.5) * 2.0 : uv.x * 2.0;
 
-                    // 2. ÁP DỤNG HIỆU ỨNG MẮT CÁ (Fisheye cho từng ô mắt)
-                    uv = applyFisheye(uv, uDistortion);
+                    // 2. HIỆU ỨNG MẮT CÁ (Fisheye) - Tính toán theo uEyeAspect để bẻ cong hình tròn chuẩn
+                    vec2 cc = eyeUv - 0.5;
+                    cc.x *= uEyeAspect; 
+                    float dist = dot(cc, cc);
+                    vec2 distortedUv = eyeUv + (eyeUv - 0.5) * dist * uDistortion;
 
-                    // Cắt các góc đen dư thừa sau khi bo cong thấu kính
-                    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+                    // Cắt viền đen ngoài thấu kính
+                    if (distortedUv.x < 0.0 || distortedUv.x > 1.0 || distortedUv.y < 0.0 || distortedUv.y > 1.0) {
                         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
                         return;
                     }
 
-                    // 3. ĐỊNH HƯỚNG LẠI CAMERA CHO ĐỨNG THẲNG
-                    // Khi điện thoại nằm ngang, luồng camera bị nghiêng 90 độ, ta xoay UV lấy mẫu texture ngược lại để ảnh đứng thẳng.
-                    // Đồng thời căn chỉnh lại tỉ lệ (Aspect Ratio) để hình không bị kéo giãn theo chiều ngang.
-                    vec2 texCoord;
-                    texCoord.x = uv.y; 
-                    texCoord.y = 1.0 - uv.x;
+                    // 3. CĂN CHỈNH TỶ LỆ CAMERA ĐỂ KHÔNG BỊ BẸP (Object-fit: cover)
+                    // Chuyển tọa độ tâm về (0,0)
+                    vec2 centeredUv = distortedUv - 0.5; 
+                    
+                    float scaleX = 1.0;
+                    float scaleY = 1.0;
+                    
+                    // Nếu khung mắt hẹp hơn video (thường xảy ra vì video 16:9, còn mắt là khung dọc)
+                    if (uEyeAspect < uVideoAspect) {
+                        scaleX = uVideoAspect / uEyeAspect;
+                    } else {
+                        scaleY = uEyeAspect / uVideoAspect;
+                    }
 
-                    // Thu hẹp vùng lấy mẫu ở giữa camera để hình ảnh không bị "bẹp" ngang khi đưa vào khung dọc
-                    texCoord.x = texCoord.x * 0.6 + 0.2; 
+                    centeredUv.x *= scaleX;
+                    centeredUv.y *= scaleY;
 
-                    // Render hình ảnh kết hợp mờ tùy chỉnh
-                    gl_FragColor = applyBlur(tDiffuse, texCoord, uBlur);
+                    vec2 videoUv = centeredUv + 0.5;
+
+                    // Bỏ qua các pixel nằm ngoài video để tránh rác hình
+                    if (videoUv.x < 0.0 || videoUv.x > 1.0 || videoUv.y < 0.0 || videoUv.y > 1.0) {
+                         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+                         return;
+                    }
+
+                    gl_FragColor = applyBlur(tDiffuse, videoUv, uBlur);
                 }
             `
         };
@@ -154,22 +142,44 @@
         async function initCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: { exact: "environment" },
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 }
-                    },
+                    video: { facingMode: { exact: "environment" } }, // Camera sau
                     audio: false
                 });
                 video.srcObject = stream;
                 video.play();
-                video.onloadedmetadata = () => setupThreeJS();
+                
+                // Phải đợi video lấy xong thông tin để biết chính xác chiều cao/chiều rộng
+                video.onloadedmetadata = () => {
+                    if(!scene) setupThreeJS();
+                    else updateUniforms();
+                };
             } catch (err) {
-                // Fallback nếu test trên máy tính hoặc không lấy được cam sau chính xác
+                // Fallback nếu lỗi
                 const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 video.srcObject = fallbackStream;
                 video.play();
-                video.onloadedmetadata = () => setupThreeJS();
+                video.onloadedmetadata = () => {
+                    if(!scene) setupThreeJS();
+                    else updateUniforms();
+                };
+            }
+        }
+
+        function getEyeAspect() {
+            // Tỷ lệ 1 mắt = (Chiều rộng màn hình / 2) / Chiều cao màn hình
+            return (window.innerWidth / 2.0) / window.innerHeight;
+        }
+
+        function getVideoAspect() {
+            // Tỷ lệ video thực tế từ camera
+            if (video.videoWidth === 0 || video.videoHeight === 0) return 1.0;
+            return video.videoWidth / video.videoHeight;
+        }
+
+        function updateUniforms() {
+            if (shaderMaterial) {
+                shaderMaterial.uniforms.uEyeAspect.value = getEyeAspect();
+                shaderMaterial.uniforms.uVideoAspect.value = getVideoAspect();
             }
         }
 
@@ -182,12 +192,16 @@
             document.body.appendChild(renderer.domElement);
 
             videoTexture = new THREE.VideoTexture(video);
+            videoTexture.minFilter = THREE.LinearFilter;
+            videoTexture.magFilter = THREE.LinearFilter;
 
             shaderMaterial = new THREE.ShaderMaterial({
                 uniforms: {
                     tDiffuse: { value: videoTexture },
                     uBlur: { value: parseFloat(blurSlider.value) },
-                    uDistortion: { value: parseFloat(fishSlider.value) }
+                    uDistortion: { value: parseFloat(fishSlider.value) },
+                    uEyeAspect: { value: getEyeAspect() },
+                    uVideoAspect: { value: getVideoAspect() }
                 },
                 vertexShader: VRShader.vertexShader,
                 fragmentShader: VRShader.fragmentShader
@@ -197,21 +211,22 @@
             const mesh = new THREE.Mesh(geometry, shaderMaterial);
             scene.add(mesh);
 
-            // Gán sự kiện thay đổi thanh trượt liên tục
-            blurSlider.addEventListener('input', (e) => { shaderMaterial.uniforms.uBlur.value = parseFloat(e.target.value); });
-            fishSlider.addEventListener('input', (e) => { shaderMaterial.uniforms.uDistortion.value = parseFloat(e.target.value); });
+            blurSlider.addEventListener('input', (e) => shaderMaterial.uniforms.uBlur.value = parseFloat(e.target.value));
+            fishSlider.addEventListener('input', (e) => shaderMaterial.uniforms.uDistortion.value = parseFloat(e.target.value));
 
-            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('resize', () => {
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                updateUniforms();
+            });
+
             animate();
-        }
-
-        function onWindowResize() {
-            renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
         function animate() {
             requestAnimationFrame(animate);
-            renderer.render(scene, camera);
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
         }
 
         startBtn.addEventListener('click', () => {
