@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>VR Pass-Through SBS Fixed</title>
+    <title>VR YouTube Style Pass-Through</title>
     <style>
         * {
             box-sizing: border-box;
@@ -38,6 +38,7 @@
             display: block;
         }
 
+        /* Thanh kéo chỉnh độ mờ ở cạnh phải */
         .blur-control-container {
             position: fixed;
             right: 20px;
@@ -107,7 +108,7 @@
                     video.srcObject = stream;
                     video.addEventListener('loadedmetadata', initVRScene);
                 } catch (fallbackError) {
-                    alert("Yêu cầu HTTPS và quyền camera.");
+                    alert("Yêu cầu quyền kết nối camera qua HTTPS.");
                 }
             }
         }
@@ -131,25 +132,27 @@
             const fragmentShader = `
                 uniform sampler2D tDiffuse;
                 uniform float uBlur;
-                uniform float uIsPortrait;
                 varying vec2 vUv;
 
+                // Hàm tạo hiệu ứng bẻ cong kính VR (Fish-eye/Barrel Distortion)
                 vec2 distort(vec2 uv) {
                     vec2 cc = uv - 0.5;
                     float dist = dot(cc, cc);
-                    return uv + cc * dist * 0.42; 
+                    return uv + cc * dist * 0.38; 
                 }
 
                 void main() {
-                    // Sửa logic xoay UV: Đảm bảo khi xoay ngang, luồng camera chuẩn chiều thẳng đứng
-                    vec2 correctedUv = vUv;
-                    if (uIsPortrait > 0.5) {
-                        correctedUv = vec2(vUv.y, 1.0 - vUv.x);
-                    }
+                    // ÉP BUỘC XOAY LUỒNG CAMERA: Khi điện thoại nằm ngang trong kính VR,
+                    // gốc tọa độ UV cần xoay 90 độ để giữ hình ảnh đứng thẳng chuẩn mắt người nhìn.
+                    vec2 rotatedUv = vec2(vUv.y, 1.0 - vUv.x);
 
-                    vec2 distortedUv = distort(correctedUv);
+                    // Áp dụng bẻ cong thấu kính lồi
+                    vec2 distortedUv = distort(rotatedUv);
+                    
+                    // Giữ ảnh căng tràn, loại bỏ viền đen lỗi tỷ lệ
                     distortedUv = clamp(distortedUv, 0.001, 0.999);
 
+                    // Xử lý hiệu ứng làm mờ (Blur Slider)
                     vec4 color = vec4(0.0);
                     float total = 0.0;
                     float radius = uBlur / 1000.0;
@@ -172,18 +175,40 @@
             material = new THREE.ShaderMaterial({
                 uniforms: {
                     tDiffuse: { value: texture },
-                    uBlur: { value: currentBlur },
-                    uIsPortrait: { value: window.innerHeight > window.innerWidth ? 1.0 : 0.0 }
+                    uBlur: { value: currentBlur }
                 },
                 vertexShader: vertexShader,
                 fragmentShader: fragmentShader
             });
 
-            // Định hình lại lưới hình học (Geometry) cho chế độ Xoay Ngang màn hình
-            // Căn chuẩn kích thước chia đôi theo trục dọc (X từ -1 đến 0, và từ 0 đến 1)
-            updateMeshGeometry();
+            // CỐ ĐỊNH CHIA ĐÔI MÀN HÌNH THEO HÀNG DỌC (Side-by-Side)
+            // Mắt trái chiếm từ tọa độ X: -1.0 đến 0.0
+            const geoLeft = new THREE.BufferGeometry();
+            geoLeft.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+                -1.0,  1.0, 0.0,
+                 0.0,  1.0, 0.0,
+                -1.0, -1.0, 0.0,
+                 0.0, -1.0, 0.0
+            ]), 3));
+            geoLeft.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0,1, 1,1, 0,0, 1,0]), 2));
+            geoLeft.setIndex([0, 2, 1, 2, 3, 1]);
+            meshLeft = new THREE.Mesh(geoLeft, material);
+            scene.add(meshLeft);
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+            // Mắt phải chiếm từ tọa độ X: 0.0 đến 1.0
+            const geoRight = new THREE.BufferGeometry();
+            geoRight.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+                 0.0,  1.0, 0.0,
+                 1.0,  1.0, 0.0,
+                 0.0, -1.0, 0.0,
+                 1.0, -1.0, 0.0
+            ]), 3));
+            geoRight.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0,1, 1,1, 0,0, 1,0]), 2));
+            geoRight.setIndex([0, 2, 1, 2, 3, 1]);
+            meshRight = new THREE.Mesh(geoRight, material);
+            scene.add(meshRight);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             container.appendChild(renderer.domElement);
@@ -195,76 +220,11 @@
             animate();
 
             window.addEventListener('resize', onWindowResize);
-            window.addEventListener('orientationchange', onWindowResize);
-        }
-
-        function updateMeshGeometry() {
-            // Xóa mesh cũ nếu có khi thay đổi hướng màn hình
-            if (meshLeft) scene.remove(meshLeft);
-            if (meshRight) scene.remove(meshRight);
-
-            const isPortrait = window.innerHeight > window.innerWidth;
-
-            let verticesLeft, verticesRight;
-
-            if (isPortrait) {
-                // Nếu điện thoại đang dựng dọc (chưa xoay), tạm thời chia đôi theo hàng ngang để chờ xoay
-                verticesLeft = new Float32Array([
-                    -1.0,  1.0, 0.0,
-                     1.0,  1.0, 0.0,
-                    -1.0,  0.0, 0.0,
-                     1.0,  0.0, 0.0
-                ]);
-                verticesRight = new Float32Array([
-                    -1.0,  0.0, 0.0,
-                     1.0,  0.0, 0.0,
-                    -1.0, -1.0, 0.0,
-                     1.0, -1.0, 0.0
-                ]);
-            } else {
-                // KHI XOAY NGANG ĐIỆN THOẠI: Chia đôi màn hình theo HÀNG DỌC chuẩn VR
-                verticesLeft = new Float32Array([
-                    -1.0,  1.0, 0.0,  // Trên - Trái
-                     0.0,  1.0, 0.0,  // Trên - Giữa
-                    -1.0, -1.0, 0.0,  // Dưới - Trái
-                     0.0, -1.0, 0.0   // Dưới - Giữa
-                ]);
-                verticesRight = new Float32Array([
-                     0.0,  1.0, 0.0,  // Trên - Giữa
-                     1.0,  1.0, 0.0,  // Trên - Phải
-                     0.0, -1.0, 0.0,  // Dưới - Giữa
-                     1.0, -1.0, 0.0   // Dưới - Phải
-                ]);
-            }
-
-            const uvs = new Float32Array([0,1, 1,1, 0,0, 1,0]);
-            const indices = [0, 2, 1, 2, 3, 1];
-
-            const geoLeft = new THREE.BufferGeometry();
-            geoLeft.setAttribute('position', new THREE.BufferAttribute(verticesLeft, 3));
-            geoLeft.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-            geoLeft.setIndex(indices);
-            meshLeft = new THREE.Mesh(geoLeft, material);
-            scene.add(meshLeft);
-
-            const geoRight = new THREE.BufferGeometry();
-            geoRight.setAttribute('position', new THREE.BufferAttribute(verticesRight, 3));
-            geoRight.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-            geoRight.setIndex(indices);
-            meshRight = new THREE.Mesh(geoRight, material);
-            scene.add(meshRight);
         }
 
         function onWindowResize() {
-            if (renderer && material) {
-                const w = window.innerWidth;
-                const h = window.innerHeight;
-                renderer.setSize(w, h);
-                
-                material.uniforms.uIsPortrait.value = h > w ? 1.0 : 0.0;
-                
-                // Cập nhật lại cấu trúc chia đôi màn hình ngay lập tức khi xoay máy
-                updateMeshGeometry();
+            if (renderer) {
+                renderer.setSize(window.innerWidth, window.innerHeight);
             }
         }
 
@@ -273,6 +233,7 @@
             if (material) material.uniforms.uBlur.value = currentBlur;
         });
 
+        // Vào Fullscreen, khóa Landscape xoay ngang và giữ màn hình luôn sáng
         async function activateVRMode() {
             const docElm = document.documentElement;
             if (docElm.requestFullscreen) {
