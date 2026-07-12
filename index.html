@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>VR Passthrough - Fisheye & Blur</title>
+    <title>VR Passthrough Fix - Auto Rotate</title>
     <style>
         body, html {
             margin: 0;
@@ -14,59 +14,58 @@
             background-color: #000;
             font-family: sans-serif;
         }
-        /* Giao diện thanh trượt điều khiển */
         #ui-container {
             position: absolute;
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 10;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 15px;
-            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 12px;
+            border-radius: 8px;
             color: white;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 10px;
-            width: 80%;
-            max-width: 400px;
+            gap: 8px;
+            width: 85%;
+            max-width: 360px;
         }
         .slider-group {
             display: flex;
             align-items: center;
             width: 100%;
             justify-content: space-between;
+            font-size: 13px;
         }
         input[type=range] {
-            width: 60%;
+            width: 55%;
         }
         button {
-            padding: 8px 16px;
+            padding: 10px 20px;
             border: none;
             border-radius: 5px;
-            background: #2196F3;
-            color: white;
+            background: #00E676;
+            color: black;
             font-weight: bold;
             cursor: pointer;
+            font-size: 14px;
         }
-        /* Ẩn UI khi đang trong chế độ VR hoàn toàn nếu cần */
         .hidden { display: none !important; }
     </style>
-    <!-- Nhúng thư viện Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
     <div id="ui-container">
-        <button id="start-btn">Mở Camera VR</button>
+        <button id="start-btn">KÍCH HOẠT CAMERA VR</button>
         <div class="slider-group">
             <label for="blur-slider">Độ mờ (Blur):</label>
             <input type="range" id="blur-slider" min="0" max="0.1" step="0.005" value="0.02">
         </div>
         <div class="slider-group">
-            <label for="fish-slider">Độ cong thấu kính:</label>
-            <input type="range" id="fish-slider" min="0" max="1" step="0.05" value="0.3">
+            <label for="fish-slider">Độ cong kính VR:</label>
+            <input type="range" id="fish-slider" min="0" max="1" step="0.05" value="0.25">
         </div>
     </div>
 
@@ -81,7 +80,6 @@
 
         let scene, camera, renderer, videoTexture, shaderMaterial;
 
-        // Cấu hình Custom Shader để xử lý Chia đôi màn hình + Mắt cá (Fisheye) + Khử mờ (Blur)
         const CustomVRShader = {
             vertexShader: `
                 varying vec2 vUv;
@@ -94,16 +92,15 @@
                 uniform sampler2D tDiffuse;
                 uniform float uBlur;
                 uniform float uDistortion;
+                uniform int uRotateVideo; // 1 nếu cần xoay 90 độ, 0 nếu không
                 varying vec2 vUv;
 
-                // Hàm giả lập biến dạng thấu kính mắt cá (Barrel Distortion)
                 vec2 barrelDistortion(vec2 coord, float amt) {
                     vec2 cc = coord - 0.5;
                     float dist = dot(cc, cc);
                     return coord + cc * dist * amt;
                 }
 
-                // Hàm làm mờ dạng Box Blur cơ bản bằng cách lấy mẫu chéo xung quanh
                 vec4 boxBlur(sampler2D tex, vec2 uv, float intensity) {
                     vec4 color = vec4(0.0);
                     float count = 0.0;
@@ -120,60 +117,65 @@
                 void main() {
                     vec2 uv = vUv;
                     
-                    // Chia đôi màn hình: xác định mắt trái hay mắt phải
+                    // CHIA ĐÔI MÀN HÌNH THEO TRỤC NGANG (Chuẩn VR khi nằm ngang)
                     bool isRightEye = uv.x > 0.5;
-                    
-                    // Chuẩn hóa UV riêng cho từng nửa màn hình về khoảng [0.0, 1.0]
                     if (isRightEye) {
                         uv.x = (uv.x - 0.5) * 2.0;
                     } else {
                         uv.x = uv.x * 2.0;
                     }
 
-                    // Áp dụng hiệu ứng mắt cá riêng cho từng mắt để không bị lệch trục nhìn
+                    // Áp dụng hiệu ứng mắt cá cho từng bên mắt
                     uv = barrelDistortion(uv, uDistortion);
 
-                    // Kiểm tra nếu sau khi bo cong, tọa độ vượt quá giới hạn thì cắt bỏ (bọc đen)
+                    // Khử vùng thừa ngoài thấu kính
                     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
                         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
                         return;
                     }
 
-                    // Lấy màu từ camera kết hợp làm mờ
-                    vec4 camColor = boxBlur(tDiffuse, uv, uBlur);
-                    gl_FragColor = camColor;
+                    // XỬ LÝ XOAY ĐỨNG HÌNH ẢNH CAMERA:
+                    // Khi điện thoại nằm ngang, luồng camera di động thường bị nghiêng 90 độ.
+                    // Ta tiến hành xoay lại hệ tọa độ lấy mẫu Texture để hình ảnh đứng thẳng.
+                    vec2 texCoord = uv;
+                    if (uRotateVideo == 1) {
+                        texCoord = vec2(uv.y, 1.0 - uv.x); 
+                    }
+
+                    // Lấy mẫu màu kèm hiệu ứng làm mờ
+                    gl_FragColor = boxBlur(tDiffuse, texCoord, uBlur);
                 }
             `
         };
 
-        // Kích hoạt camera sau của điện thoại
         async function initCamera() {
             try {
                 const constraints = {
                     video: {
-                        facingMode: { exact: "environment" }, // Ép buộc lấy camera sau
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
+                        facingMode: { exact: "environment" },
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
                     },
                     audio: false
                 };
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
                 video.play();
-                setupThreeJS();
-                uiContainer.style.background = "rgba(0,0,0,0.2)"; // Làm trong suốt UI để nhìn
+                
+                // Đợi video load cấu hình metadata để lấy đúng hướng gốc
+                video.onloadedmetadata = () => {
+                    setupThreeJS();
+                };
             } catch (err) {
-                alert("Không thể truy cập camera sau. Hãy chắc chắn bạn cấp quyền và dùng HTTPS/localhost. Thử dùng camera mặc định.");
-                // Fallback nếu không có camera sau cụ thể (như trên máy tính)
+                // Fallback nếu không có cam sau (hoặc đang test máy tính)
                 const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 video.srcObject = fallbackStream;
                 video.play();
-                setupThreeJS();
+                video.onloadedmetadata = () => { setupThreeJS(); };
             }
         }
 
         function setupThreeJS() {
-            // Khởi tạo Scene phẳng để vẽ 2D Shader
             scene = new THREE.Scene();
             camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
             
@@ -181,14 +183,16 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
 
-            // Đưa luồng video thành Texture
             videoTexture = new THREE.VideoTexture(video);
             
-            // Khởi tạo các tham số truyền vào Shader (Uniforms)
+            // Kiểm tra xem màn hình đang dọc hay ngang để quyết định xoay luồng cam trong Shader
+            const shouldRotate = window.innerWidth > window.innerHeight ? 1 : 0;
+
             const uniforms = {
                 tDiffuse: { value: videoTexture },
                 uBlur: { value: parseFloat(blurSlider.value) },
-                uDistortion: { value: parseFloat(fishSlider.value) }
+                uDistortion: { value: parseFloat(fishSlider.value) },
+                uRotateVideo: { value: shouldRotate }
             };
 
             shaderMaterial = new THREE.ShaderMaterial({
@@ -197,18 +201,13 @@
                 fragmentShader: CustomVRShader.fragmentShader
             });
 
-            // Vẽ một mặt phẳng phủ kín màn hình
             const geometry = new THREE.PlaneGeometry(2, 2);
             const mesh = new THREE.Mesh(geometry, shaderMaterial);
             scene.add(mesh);
 
-            // Lắng nghe sự kiện thay đổi thanh trượt
-            blurSlider.addEventListener('input', (e) => {
-                shaderMaterial.uniforms.uBlur.value = parseFloat(e.target.value);
-            });
-            fishSlider.addEventListener('input', (e) => {
-                shaderMaterial.uniforms.uDistortion.value = parseFloat(e.target.value);
-            });
+            // Cập nhật giá trị khi kéo thanh trượt
+            blurSlider.addEventListener('input', (e) => { shaderMaterial.uniforms.uBlur.value = parseFloat(e.target.value); });
+            fishSlider.addEventListener('input', (e) => { shaderMaterial.uniforms.uDistortion.value = parseFloat(e.target.value); });
 
             window.addEventListener('resize', onWindowResize);
             animate();
@@ -216,6 +215,10 @@
 
         function onWindowResize() {
             renderer.setSize(window.innerWidth, window.innerHeight);
+            // Cập nhật lại trạng thái xoay hình khi người dùng đổi góc cầm máy
+            if (shaderMaterial) {
+                shaderMaterial.uniforms.uRotateVideo.value = window.innerWidth > window.innerHeight ? 1 : 0;
+            }
         }
 
         function animate() {
@@ -225,7 +228,7 @@
 
         startBtn.addEventListener('click', () => {
             initCamera();
-            startBtn.classList.add('hidden'); // Ẩn nút bắt đầu sau khi bấm
+            startBtn.classList.add('hidden');
         });
     </script>
 </body>
