@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>VR Pass-Through Fix</title>
+    <title>VR Pass-Through SBS Fixed</title>
     <style>
         * {
             box-sizing: border-box;
@@ -120,7 +120,6 @@
 
             texture = new THREE.VideoTexture(video);
             
-            // Shader được nâng cấp: Tự căn tỷ lệ (Aspect Ratio) và bẻ cong lồi không góc chết
             const vertexShader = `
                 varying vec2 vUv;
                 void main() {
@@ -138,19 +137,17 @@
                 vec2 distort(vec2 uv) {
                     vec2 cc = uv - 0.5;
                     float dist = dot(cc, cc);
-                    return uv + cc * dist * 0.40; // Tăng nhẹ độ căng thấu kính VR
+                    return uv + cc * dist * 0.42; 
                 }
 
                 void main() {
-                    // Nếu điện thoại đang dựng dọc, xoay UV mã nguồn camera đi 90 độ để ảnh chuẩn VR nằm ngang
+                    // Sửa logic xoay UV: Đảm bảo khi xoay ngang, luồng camera chuẩn chiều thẳng đứng
                     vec2 correctedUv = vUv;
                     if (uIsPortrait > 0.5) {
                         correctedUv = vec2(vUv.y, 1.0 - vUv.x);
                     }
 
                     vec2 distortedUv = distort(correctedUv);
-                    
-                    // Xóa vạch đen bằng cách ép biên lặp (Clamp edge) thay vì cắt viền đen màu mục tiêu
                     distortedUv = clamp(distortedUv, 0.001, 0.999);
 
                     vec4 color = vec4(0.0);
@@ -182,31 +179,9 @@
                 fragmentShader: fragmentShader
             });
 
-            // Mesh mắt Trái
-            const geoLeft = new THREE.BufferGeometry();
-            geoLeft.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-                -1.0,  1.0, 0.0,
-                 0.0,  1.0, 0.0,
-                -1.0, -1.0, 0.0,
-                 0.0, -1.0, 0.0
-            ]), 3));
-            geoLeft.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0,1, 1,1, 0,0, 1,0]), 2));
-            geoLeft.setIndex([0, 2, 1, 2, 3, 1]);
-            meshLeft = new THREE.Mesh(geoLeft, material);
-            scene.add(meshLeft);
-
-            // Mesh mắt Phải
-            const geoRight = new THREE.BufferGeometry();
-            geoRight.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-                 0.0,  1.0, 0.0,
-                 1.0,  1.0, 0.0,
-                 0.0, -1.0, 0.0,
-                 1.0, -1.0, 0.0
-            ]), 3));
-            geoRight.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0,1, 1,1, 0,0, 1,0]), 2));
-            geoRight.setIndex([0, 2, 1, 2, 3, 1]);
-            meshRight = new THREE.Mesh(geoRight, material);
-            scene.add(meshRight);
+            // Định hình lại lưới hình học (Geometry) cho chế độ Xoay Ngang màn hình
+            // Căn chuẩn kích thước chia đôi theo trục dọc (X từ -1 đến 0, và từ 0 đến 1)
+            updateMeshGeometry();
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -223,13 +198,73 @@
             window.addEventListener('orientationchange', onWindowResize);
         }
 
+        function updateMeshGeometry() {
+            // Xóa mesh cũ nếu có khi thay đổi hướng màn hình
+            if (meshLeft) scene.remove(meshLeft);
+            if (meshRight) scene.remove(meshRight);
+
+            const isPortrait = window.innerHeight > window.innerWidth;
+
+            let verticesLeft, verticesRight;
+
+            if (isPortrait) {
+                // Nếu điện thoại đang dựng dọc (chưa xoay), tạm thời chia đôi theo hàng ngang để chờ xoay
+                verticesLeft = new Float32Array([
+                    -1.0,  1.0, 0.0,
+                     1.0,  1.0, 0.0,
+                    -1.0,  0.0, 0.0,
+                     1.0,  0.0, 0.0
+                ]);
+                verticesRight = new Float32Array([
+                    -1.0,  0.0, 0.0,
+                     1.0,  0.0, 0.0,
+                    -1.0, -1.0, 0.0,
+                     1.0, -1.0, 0.0
+                ]);
+            } else {
+                // KHI XOAY NGANG ĐIỆN THOẠI: Chia đôi màn hình theo HÀNG DỌC chuẩn VR
+                verticesLeft = new Float32Array([
+                    -1.0,  1.0, 0.0,  // Trên - Trái
+                     0.0,  1.0, 0.0,  // Trên - Giữa
+                    -1.0, -1.0, 0.0,  // Dưới - Trái
+                     0.0, -1.0, 0.0   // Dưới - Giữa
+                ]);
+                verticesRight = new Float32Array([
+                     0.0,  1.0, 0.0,  // Trên - Giữa
+                     1.0,  1.0, 0.0,  // Trên - Phải
+                     0.0, -1.0, 0.0,  // Dưới - Giữa
+                     1.0, -1.0, 0.0   // Dưới - Phải
+                ]);
+            }
+
+            const uvs = new Float32Array([0,1, 1,1, 0,0, 1,0]);
+            const indices = [0, 2, 1, 2, 3, 1];
+
+            const geoLeft = new THREE.BufferGeometry();
+            geoLeft.setAttribute('position', new THREE.BufferAttribute(verticesLeft, 3));
+            geoLeft.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+            geoLeft.setIndex(indices);
+            meshLeft = new THREE.Mesh(geoLeft, material);
+            scene.add(meshLeft);
+
+            const geoRight = new THREE.BufferGeometry();
+            geoRight.setAttribute('position', new THREE.BufferAttribute(verticesRight, 3));
+            geoRight.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+            geoRight.setIndex(indices);
+            meshRight = new THREE.Mesh(geoRight, material);
+            scene.add(meshRight);
+        }
+
         function onWindowResize() {
             if (renderer && material) {
                 const w = window.innerWidth;
                 const h = window.innerHeight;
                 renderer.setSize(w, h);
-                // Cập nhật trạng thái xoay màn hình vào Shader để tính toán lại hướng camera
+                
                 material.uniforms.uIsPortrait.value = h > w ? 1.0 : 0.0;
+                
+                // Cập nhật lại cấu trúc chia đôi màn hình ngay lập tức khi xoay máy
+                updateMeshGeometry();
             }
         }
 
