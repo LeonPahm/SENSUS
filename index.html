@@ -20,8 +20,7 @@
             position: fixed; /* Giữ màn hình cố định trên iOS */
         }
 
-        /* #stage bọc toàn bộ nội dung (video + thanh điều khiển) để
-           có thể xoay cùng lúc khi cần ép giao diện dạng ngang */
+        /* #stage bọc toàn bộ nội dung */
         #stage {
             position: absolute;
             top: 0;
@@ -42,11 +41,7 @@
             z-index: 1;
         }
 
-        /* ÉP GIAO DIỆN LUÔN HIỂN THỊ DẠNG NGANG (LANDSCAPE)
-           Dùng khi Safari không tự xoay trang (do khóa xoay màn hình
-           hoặc trình duyệt giữ nguyên bố cục dọc) nhưng người dùng
-           đã xoay ngang điện thoại để lắp vào kính VR box. Xoay cả
-           #stage (video + thanh trượt) cùng một lúc để mọi thứ đồng bộ. */
+        /* Xử lý khi điện thoại ở chế độ dọc (Chưa bật xoay hoặc Safari giữ nguyên dọc) */
         @media screen and (orientation: portrait) {
             #stage {
                 width: 100vh;
@@ -56,6 +51,19 @@
                 left: 50%;
                 transform-origin: center center;
                 transform: translate(-50%, -50%) rotate(90deg);
+            }
+            /* Khi ép xoay #stage 90 độ, luồng video bị xoay lệch, cần bù lại góc để camera thẳng đứng */
+            video {
+                transform: rotate(-90deg);
+            }
+        }
+
+        /* Xử lý khi điện thoại ở chế độ ngang (Màn hình tự động xoay chuẩn) */
+        @media screen and (orientation: landscape) {
+            /* Tùy thuộc vào thiết bị, nếu camera bị lật nghiêng khi nằm ngang, 
+               hãy đảm bảo video giữ nguyên hoặc xoay bù góc thích hợp */
+            video {
+                transform: rotate(0deg);
             }
         }
 
@@ -72,9 +80,11 @@
 
         /* Thẻ video hiển thị cam sau - nhân đôi cho mỗi mắt */
         video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover; /* Phủ kín màn hình, có thể bị cắt một chút */
+            /* Tăng kích thước rộng hơn khung một chút để khi xoay hình ảnh không bị lộ khoảng đen */
+            width: 150%; 
+            height: 150%;
+            object-fit: cover; 
+            transform-origin: center center;
 
             /* Gaussian Blur mặc định */
             filter: blur(15px);
