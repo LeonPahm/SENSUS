@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>VR Blurred Back Camera</title>
     <style>
         * {
@@ -41,7 +41,7 @@
             z-index: 1;
         }
 
-        /* Xử lý khi điện thoại ở chế độ dọc (Chưa bật xoay hoặc Safari giữ nguyên dọc) */
+        /* Xử lý khi điện thoại ở chế độ dọc */
         @media screen and (orientation: portrait) {
             #stage {
                 width: 100vh;
@@ -52,16 +52,14 @@
                 transform-origin: center center;
                 transform: translate(-50%, -50%) rotate(90deg);
             }
-            /* Khi ép xoay #stage 90 độ, luồng video bị xoay lệch, cần bù lại góc để camera thẳng đứng */
+            /* Xoay bù lại góc để camera thẳng đứng */
             video {
                 transform: rotate(-90deg);
             }
         }
 
-        /* Xử lý khi điện thoại ở chế độ ngang (Màn hình tự động xoay chuẩn) */
+        /* Xử lý khi điện thoại ở chế độ ngang */
         @media screen and (orientation: landscape) {
-            /* Tùy thuộc vào thiết bị, nếu camera bị lật nghiêng khi nằm ngang, 
-               hãy đảm bảo video giữ nguyên hoặc xoay bù góc thích hợp */
             video {
                 transform: rotate(0deg);
             }
@@ -80,7 +78,6 @@
 
         /* Thẻ video hiển thị cam sau - nhân đôi cho mỗi mắt */
         video {
-            /* Tăng kích thước rộng hơn khung một chút để khi xoay hình ảnh không bị lộ khoảng đen */
             width: 150%; 
             height: 150%;
             object-fit: cover; 
@@ -89,7 +86,6 @@
             /* Gaussian Blur mặc định */
             filter: blur(15px);
             -webkit-filter: blur(15px); /* Hỗ trợ Safari/iOS */
-
             transition: filter 0.1s ease;
         }
 
@@ -120,13 +116,44 @@
 
         .controls input[type="range"] {
             flex-grow: 1;
-            accent-color: #007bff; /* Màu nút kéo */
+            accent-color: #007bff; 
             height: 8px;
             cursor: pointer;
+        }
+
+        /* Màn hình phủ yêu cầu nhấn để kích hoạt Fullscreen và Wake Lock */
+        #start-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #start-btn {
+            padding: 15px 35px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #fff;
+            background: #007bff;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,123,255,0.4);
         }
     </style>
 </head>
 <body>
+
+    <!-- Lớp phủ bắt buộc nhấn để ẩn thanh công cụ trình duyệt & giữ sáng màn hình -->
+    <div id="start-overlay">
+        <button id="start-btn">BẮT ĐẦU VR</button>
+    </div>
 
     <div id="stage">
         <div class="vr-container">
@@ -148,12 +175,51 @@
         const videoLeft = document.getElementById('webcam-left');
         const videoRight = document.getElementById('webcam-right');
         const blurSlider = document.getElementById('blur-slider');
+        const startOverlay = document.getElementById('start-overlay');
+        const startBtn = document.getElementById('start-btn');
 
-        // Hàm yêu cầu quyền và kích hoạt Camera SAU, gán 1 stream cho cả 2 video
+        let wakeLock = null;
+
+        // 1. Hàm giữ màn hình luôn sáng (Wake Lock API)
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('Đã kích hoạt khóa giữ sáng màn hình!');
+                    
+                    // Nếu tab bị ẩn rồi mở lại, kích hoạt lại wake lock
+                    document.addEventListener('visibilitychange', async () => {
+                        if (wakeLock !== null && document.visibilityState === 'visible') {
+                            wakeLock = await navigator.wakeLock.request('screen');
+                        }
+                    });
+                } else {
+                    console.warn('Trình duyệt không hỗ trợ Wake Lock API.');
+                }
+            } catch (err) {
+                console.error(`Lỗi giữ sáng màn hình: ${err.message}`);
+            }
+        }
+
+        // 2. Hàm kích hoạt chế độ Toàn màn hình (Ẩn thanh trắng/thanh địa chỉ)
+        function enableFullscreen() {
+            const docElm = document.documentElement;
+            if (docElm.requestFullscreen) {
+                docElm.requestFullscreen();
+            } else if (docElm.mozRequestFullScreen) { /* Firefox */
+                docElm.mozRequestFullScreen();
+            } else if (docElm.webkitRequestFullScreen) { /* Chrome, Safari & Opera */
+                docElm.webkitRequestFullScreen();
+            } else if (docElm.msRequestFullscreen) { /* IE/Edge */
+                docElm.msRequestFullscreen();
+            }
+        }
+
+        // 3. Hàm kích hoạt Camera SAU
         async function initCamera() {
             const constraints = {
                 video: {
-                    facingMode: { exact: "environment" }, // CHỈ ĐỊNH CAMERA SAU
+                    facingMode: { exact: "environment" },
                     width: { ideal: 1920 },
                     height: { ideal: 1080 }
                 },
@@ -165,9 +231,7 @@
                 videoLeft.srcObject = stream;
                 videoRight.srcObject = stream;
             } catch (error) {
-                console.error("Lỗi camera:", error);
-
-                console.warn("Không ép được cấu hình nghiêm ngặt, thử chế độ ưu tiên tự động...");
+                console.warn("Thử chế độ ưu tiên tự động...");
                 try {
                     const fallbackConstraints = {
                         video: { facingMode: "environment" },
@@ -177,13 +241,24 @@
                     videoLeft.srcObject = stream;
                     videoRight.srcObject = stream;
                 } catch (fallbackError) {
-                    console.error("Lỗi camera (fallback):", fallbackError);
-                    alert("Không thể truy cập camera sau. Hãy đảm bảo bạn đã cấp quyền camera cho trình duyệt và đang chạy trên HTTPS.");
+                    alert("Không thể truy cập camera sau. Đảm bảo chạy trên HTTPS và đã cấp quyền.");
                 }
             }
         }
 
-        // Lắng nghe sự kiện thanh trượt để thay đổi mức độ Gaussian Blur cho cả 2 mắt
+        // Sự kiện khi bấm nút "BẮT ĐẦU VR"
+        startBtn.addEventListener('click', async () => {
+            // Kích hoạt toàn màn hình để ẩn thanh địa chỉ
+            enableFullscreen();
+            // Khóa giữ sáng màn hình
+            await requestWakeLock();
+            // Khởi động camera
+            await initCamera();
+            // Ẩn lớp màn hình phủ đi
+            startOverlay.style.display = 'none';
+        });
+
+        // Lắng nghe sự kiện thanh trượt thay đổi độ mờ Gaussian Blur
         blurSlider.addEventListener('input', (e) => {
             const blurValue = e.target.value;
             const blurCss = `blur(${blurValue}px)`;
@@ -192,8 +267,6 @@
             videoRight.style.filter = blurCss;
             videoRight.style.webkitFilter = blurCss;
         });
-
-        window.addEventListener('DOMContentLoaded', initCamera);
     </script>
 </body>
 </html>
