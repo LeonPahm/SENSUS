@@ -13,11 +13,12 @@
 
         body, html {
             width: 100%;
-            height: 100%;
+            /* Sử dụng dvh (dynamic viewport height) để tự trừ đi thanh công cụ của trình duyệt */
+            height: 100dvh; 
             overflow: hidden;
             background-color: #000;
             font-family: Arial, sans-serif;
-            position: fixed; /* Giữ màn hình cố định trên iOS */
+            position: fixed;
         }
 
         /* #stage bọc toàn bộ nội dung */
@@ -52,7 +53,6 @@
                 transform-origin: center center;
                 transform: translate(-50%, -50%) rotate(90deg);
             }
-            /* Xoay bù lại góc để camera thẳng đứng */
             video {
                 transform: rotate(-90deg);
             }
@@ -65,7 +65,7 @@
             }
         }
 
-        /* Mỗi bên (trái/phải) chiếm đúng 50% chiều rộng */
+        /* Mỗi bên chiếm đúng 50% chiều rộng */
         .eye {
             width: 50%;
             height: 100%;
@@ -76,16 +76,16 @@
             align-items: center;
         }
 
-        /* Thẻ video hiển thị cam sau - nhân đôi cho mỗi mắt */
+        /* Thẻ video hiển thị cam sau */
         video {
-            width: 150%; 
-            height: 150%;
+            width: 160%; 
+            height: 160%;
             object-fit: cover; 
             transform-origin: center center;
 
             /* Gaussian Blur mặc định */
             filter: blur(15px);
-            -webkit-filter: blur(15px); /* Hỗ trợ Safari/iOS */
+            -webkit-filter: blur(15px);
             transition: filter 0.1s ease;
         }
 
@@ -121,7 +121,7 @@
             cursor: pointer;
         }
 
-        /* Màn hình phủ yêu cầu nhấn để kích hoạt Fullscreen và Wake Lock */
+        /* Màn hình phủ yêu cầu nhấn */
         #start-overlay {
             position: fixed;
             top: 0;
@@ -150,7 +150,6 @@
 </head>
 <body>
 
-    <!-- Lớp phủ bắt buộc nhấn để ẩn thanh công cụ trình duyệt & giữ sáng màn hình -->
     <div id="start-overlay">
         <button id="start-btn">BẮT ĐẦU VR</button>
     </div>
@@ -180,42 +179,42 @@
 
         let wakeLock = null;
 
-        // 1. Hàm giữ màn hình luôn sáng (Wake Lock API)
+        // Giữ màn hình luôn sáng
         async function requestWakeLock() {
             try {
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
-                    console.log('Đã kích hoạt khóa giữ sáng màn hình!');
-                    
-                    // Nếu tab bị ẩn rồi mở lại, kích hoạt lại wake lock
                     document.addEventListener('visibilitychange', async () => {
                         if (wakeLock !== null && document.visibilityState === 'visible') {
                             wakeLock = await navigator.wakeLock.request('screen');
                         }
                     });
-                } else {
-                    console.warn('Trình duyệt không hỗ trợ Wake Lock API.');
                 }
             } catch (err) {
-                console.error(`Lỗi giữ sáng màn hình: ${err.message}`);
+                console.error(err);
             }
         }
 
-        // 2. Hàm kích hoạt chế độ Toàn màn hình (Ẩn thanh trắng/thanh địa chỉ)
+        // Kích hoạt Toàn màn hình chuẩn xác cao cho thiết bị di động
         function enableFullscreen() {
-            const docElm = document.documentElement;
-            if (docElm.requestFullscreen) {
-                docElm.requestFullscreen();
-            } else if (docElm.mozRequestFullScreen) { /* Firefox */
-                docElm.mozRequestFullScreen();
-            } else if (docElm.webkitRequestFullScreen) { /* Chrome, Safari & Opera */
-                docElm.webkitRequestFullScreen();
-            } else if (docElm.msRequestFullscreen) { /* IE/Edge */
-                docElm.msRequestFullscreen();
+            // Đưa toàn bộ thẻ BODY vào chế độ toàn màn hình để triệt tiêu mọi thanh điều hướng bên ngoài
+            const element = document.body; 
+            
+            if (element.requestFullscreen) {
+                element.requestFullscreen();
+            } else if (element.webkitRequestFullscreen) { /* Ép mượt cho Safari iOS */
+                element.webkitRequestFullscreen();
+            } else if (element.mozRequestFullScreen) {
+                element.mozRequestFullScreen();
+            } else if (element.msRequestFullscreen) {
+                element.msRequestFullscreen();
             }
+
+            // Mẹo bổ sung: Tự động cuộn nhẹ trang web để kích hoạt tính năng tự ẩn thanh URL của trình duyệt di động
+            window.scrollTo(0, 1);
         }
 
-        // 3. Hàm kích hoạt Camera SAU
+        // Kích hoạt Camera
         async function initCamera() {
             const constraints = {
                 video: {
@@ -231,7 +230,6 @@
                 videoLeft.srcObject = stream;
                 videoRight.srcObject = stream;
             } catch (error) {
-                console.warn("Thử chế độ ưu tiên tự động...");
                 try {
                     const fallbackConstraints = {
                         video: { facingMode: "environment" },
@@ -241,24 +239,18 @@
                     videoLeft.srcObject = stream;
                     videoRight.srcObject = stream;
                 } catch (fallbackError) {
-                    alert("Không thể truy cập camera sau. Đảm bảo chạy trên HTTPS và đã cấp quyền.");
+                    alert("Không thể mở camera sau.");
                 }
             }
         }
 
-        // Sự kiện khi bấm nút "BẮT ĐẦU VR"
         startBtn.addEventListener('click', async () => {
-            // Kích hoạt toàn màn hình để ẩn thanh địa chỉ
             enableFullscreen();
-            // Khóa giữ sáng màn hình
             await requestWakeLock();
-            // Khởi động camera
             await initCamera();
-            // Ẩn lớp màn hình phủ đi
             startOverlay.style.display = 'none';
         });
 
-        // Lắng nghe sự kiện thanh trượt thay đổi độ mờ Gaussian Blur
         blurSlider.addEventListener('input', (e) => {
             const blurValue = e.target.value;
             const blurCss = `blur(${blurValue}px)`;
