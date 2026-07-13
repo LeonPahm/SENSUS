@@ -3,15 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Blurred Back Camera</title>
+    <title>VR Blurred Back Camera</title>
     <style>
-        /* Tối ưu hóa toàn màn hình và loại bỏ các khoảng trống */
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
         }
-        
+
         body, html {
             width: 100%;
             height: 100%;
@@ -21,29 +20,39 @@
             position: fixed; /* Giữ màn hình cố định trên iOS */
         }
 
-        /* Container chứa video, đảm bảo lấp đầy màn hình */
-        .video-container {
+        /* Container chia đôi màn hình cho VR box */
+        .vr-container {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
             display: flex;
-            justify-content: center;
-            align-items: center;
+            flex-direction: row;
             z-index: 1;
         }
 
-        /* Thẻ video hiển thị cam sau */
+        /* Mỗi bên (trái/phải) chiếm đúng 50% chiều rộng */
+        .eye {
+            width: 50%;
+            height: 100%;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Thẻ video hiển thị cam sau - nhân đôi cho mỗi mắt */
         video {
             width: 100%;
             height: 100%;
             object-fit: cover; /* Phủ kín màn hình, có thể bị cắt một chút */
-            
+
             /* Gaussian Blur mặc định */
             filter: blur(15px);
             -webkit-filter: blur(15px); /* Hỗ trợ Safari/iOS */
-            
+
             transition: filter 0.1s ease;
         }
 
@@ -82,8 +91,13 @@
 </head>
 <body>
 
-    <div class="video-container">
-        <video id="webcam" autoplay playsinline muted></video>
+    <div class="vr-container">
+        <div class="eye eye-left">
+            <video id="webcam-left" autoplay playsinline muted></video>
+        </div>
+        <div class="eye eye-right">
+            <video id="webcam-right" autoplay playsinline muted></video>
+        </div>
     </div>
 
     <div class="controls">
@@ -92,37 +106,37 @@
     </div>
 
     <script>
-        const video = document.getElementById('webcam');
+        const videoLeft = document.getElementById('webcam-left');
+        const videoRight = document.getElementById('webcam-right');
         const blurSlider = document.getElementById('blur-slider');
 
-        // Hàm yêu cầu quyền và kích hoạt Camera SAU
+        // Hàm yêu cầu quyền và kích hoạt Camera SAU, gán 1 stream cho cả 2 video
         async function initCamera() {
-            // Cấu hình bắt buộc (exact) sử dụng camera sau độc quyền
             const constraints = {
                 video: {
                     facingMode: { exact: "environment" }, // CHỈ ĐỊNH CAMERA SAU
                     width: { ideal: 1920 },
                     height: { ideal: 1080 }
                 },
-                audio: false // Không cần micro
+                audio: false
             };
 
             try {
-                // Trình duyệt sẽ hiện Pop-up hỏi quyền truy cập camera
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                video.srcObject = stream;
+                videoLeft.srcObject = stream;
+                videoRight.srcObject = stream;
             } catch (error) {
                 console.error("Lỗi camera:", error);
-                
-                // Phương án dự phòng: nếu điện thoại không hỗ trợ exact, thử lại chế độ ưu tiên
+
                 console.warn("Không ép được cấu hình nghiêm ngặt, thử chế độ ưu tiên tự động...");
                 try {
                     const fallbackConstraints = {
-                        video: { facingMode: "environment" }, // ƯU TIÊN CAMERA SAU
+                        video: { facingMode: "environment" },
                         audio: false
                     };
                     const stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-                    video.srcObject = stream;
+                    videoLeft.srcObject = stream;
+                    videoRight.srcObject = stream;
                 } catch (fallbackError) {
                     console.error("Lỗi camera (fallback):", fallbackError);
                     alert("Không thể truy cập camera sau. Hãy đảm bảo bạn đã cấp quyền camera cho trình duyệt và đang chạy trên HTTPS.");
@@ -130,14 +144,16 @@
             }
         }
 
-        // Lắng nghe sự kiện thanh trượt để thay đổi mức độ Gaussian Blur
+        // Lắng nghe sự kiện thanh trượt để thay đổi mức độ Gaussian Blur cho cả 2 mắt
         blurSlider.addEventListener('input', (e) => {
             const blurValue = e.target.value;
-            video.style.filter = `blur(${blurValue}px)`;
-            video.style.webkitFilter = `blur(${blurValue}px)`; // Hỗ trợ Safari
+            const blurCss = `blur(${blurValue}px)`;
+            videoLeft.style.filter = blurCss;
+            videoLeft.style.webkitFilter = blurCss;
+            videoRight.style.filter = blurCss;
+            videoRight.style.webkitFilter = blurCss;
         });
 
-        // Tự động chạy khi trang web tải xong
         window.addEventListener('DOMContentLoaded', initCamera);
     </script>
 </body>
