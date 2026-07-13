@@ -20,6 +20,16 @@
             position: fixed; /* Giữ màn hình cố định trên iOS */
         }
 
+        /* #stage bọc toàn bộ nội dung (video + thanh điều khiển) để
+           có thể xoay cùng lúc khi cần ép giao diện dạng ngang */
+        #stage {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
         /* Container chia đôi màn hình cho VR box */
         .vr-container {
             position: absolute;
@@ -30,6 +40,23 @@
             display: flex;
             flex-direction: row;
             z-index: 1;
+        }
+
+        /* ÉP GIAO DIỆN LUÔN HIỂN THỊ DẠNG NGANG (LANDSCAPE)
+           Dùng khi Safari không tự xoay trang (do khóa xoay màn hình
+           hoặc trình duyệt giữ nguyên bố cục dọc) nhưng người dùng
+           đã xoay ngang điện thoại để lắp vào kính VR box. Xoay cả
+           #stage (video + thanh trượt) cùng một lúc để mọi thứ đồng bộ. */
+        @media screen and (orientation: portrait) {
+            #stage {
+                width: 100vh;
+                height: 100vw;
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform-origin: center center;
+                transform: translate(-50%, -50%) rotate(90deg);
+            }
         }
 
         /* Mỗi bên (trái/phải) chiếm đúng 50% chiều rộng */
@@ -58,7 +85,7 @@
 
         /* Thanh điều khiển độ mờ */
         .controls {
-            position: fixed;
+            position: absolute;
             bottom: 40px;
             left: 50%;
             transform: translateX(-50%);
@@ -91,18 +118,20 @@
 </head>
 <body>
 
-    <div class="vr-container">
-        <div class="eye eye-left">
-            <video id="webcam-left" autoplay playsinline muted></video>
+    <div id="stage">
+        <div class="vr-container">
+            <div class="eye eye-left">
+                <video id="webcam-left" autoplay playsinline muted></video>
+            </div>
+            <div class="eye eye-right">
+                <video id="webcam-right" autoplay playsinline muted></video>
+            </div>
         </div>
-        <div class="eye eye-right">
-            <video id="webcam-right" autoplay playsinline muted></video>
-        </div>
-    </div>
 
-    <div class="controls">
-        <label for="blur-slider">Mờ:</label>
-        <input type="range" id="blur-slider" min="0" max="80" value="15">
+        <div class="controls">
+            <label for="blur-slider">Mờ:</label>
+            <input type="range" id="blur-slider" min="0" max="80" value="15">
+        </div>
     </div>
 
     <script>
