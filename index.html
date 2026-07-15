@@ -57,15 +57,15 @@
             position: absolute;
             top: 50%;
             left: 50%;
-            /* Sử dụng biến CSS --zoom-level để thay đổi từ Javascript */
-            width: calc(100% * var(--zoom-level, 3.0)); 
-            height: calc(100% * var(--zoom-level, 3.0)); 
+            /* Sử dụng biến CSS --zoom-level để thay đổi linh hoạt */
+            width: calc(100% * var(--zoom-level, 3.5)); 
+            height: calc(100% * var(--zoom-level, 3.5)); 
             object-fit: cover; 
             
             /* Gaussian Blur mặc định */
             filter: blur(15px);
             -webkit-filter: blur(15px);
-            transition: filter 0.05s linear, width 0.2s ease, height 0.2s ease; /* Thêm hiệu ứng zoom mượt */
+            transition: filter 0.05s linear, width 0.25s cubic-bezier(0.25, 1, 0.5, 1), height 0.25s cubic-bezier(0.25, 1, 0.5, 1);
         }
 
         /* Dịch chuyển tâm ảnh của 2 mắt ngược chiều nhau để chập hình */
@@ -109,8 +109,8 @@
             display: flex;
             flex-direction: column;
             gap: 15px;
-            width: 85%;
-            max-width: 420px;
+            width: 90%;
+            max-width: 440px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.6);
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255,255,255,0.1);
@@ -121,7 +121,7 @@
         .controls.hidden {
             opacity: 0;
             transform: translate(-50%, 20px);
-            pointer-events: none; /* Không cho click khi đã ẩn */
+            pointer-events: none;
         }
 
         .control-row {
@@ -146,10 +146,10 @@
             cursor: pointer;
         }
 
-        /* THIẾT KẾ NÚT BẤM ZOOM KIỂU ĐIỆN ẢNH CHUYÊN NGHIỆP */
+        /* NÚT BẤM ZOOM TỪ 0.5x ĐẾN 4.5x */
         .zoom-btn-container {
             display: flex;
-            gap: 8px;
+            gap: 6px;
         }
 
         .zoom-btn {
@@ -159,7 +159,7 @@
             border-radius: 50%;
             width: 42px;
             height: 42px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: bold;
             cursor: pointer;
             display: flex;
@@ -236,15 +236,15 @@
             </div>
             <div class="control-row">
                 <label>Phóng (Zoom):</label>
-                <!-- Hệ thống nút bấm Zoom thay cho thanh trượt -->
                 <div class="zoom-btn-container">
+                    <button class="zoom-btn" data-zoom="0.5">0.5x</button>
                     <button class="zoom-btn" data-zoom="1.5">1.5x</button>
                     <button class="zoom-btn" data-zoom="2.5">2.5x</button>
                     <button class="zoom-btn active" data-zoom="3.5">3.5x</button>
                     <button class="zoom-btn" data-zoom="4.5">4.5x</button>
                 </div>
             </div>
-            <div class="tip-text">Chạm vào màn hình để Ẩn / Hiện bảng điều khiển này</div>
+            <div class="tip-text">Chạm vào màn hình để Ẩn / Hiện bảng điều khiển</div>
         </div>
     </div>
 
@@ -260,7 +260,7 @@
 
         let wakeLock = null;
 
-        // Thiết lập giá trị Zoom ban đầu là 3.5x
+        // Thiết lập giá trị Zoom mặc định ban đầu là 3.5x (Bạn có thể đổi sang nút khác nếu muốn)
         document.documentElement.style.setProperty('--zoom-level', '3.5');
 
         // Giữ sáng màn hình
@@ -332,13 +332,9 @@
         // XỬ LÝ SỰ KIỆN CHO CÁC NÚT BẤM ZOOM
         zoomButtons.forEach(button => {
             button.addEventListener('click', () => {
-                // Xóa trạng thái kích hoạt cũ
                 zoomButtons.forEach(btn => btn.classList.remove('active'));
-                
-                // Kích hoạt nút được bấm
                 button.classList.add('active');
                 
-                // Thay đổi độ thu phóng camera
                 const zoomVal = button.getAttribute('data-zoom');
                 document.documentElement.style.setProperty('--zoom-level', zoomVal);
             });
