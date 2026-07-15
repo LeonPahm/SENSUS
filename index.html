@@ -58,8 +58,8 @@
             top: 50%;
             left: 50%;
             /* Sử dụng biến CSS --zoom-level để thay đổi linh hoạt */
-            width: calc(100% * var(--zoom-level, 3.5)); 
-            height: calc(100% * var(--zoom-level, 3.5)); 
+            width: calc(100% * var(--zoom-level, 3.0)); 
+            height: calc(100% * var(--zoom-level, 3.0)); 
             object-fit: cover; 
             
             /* Gaussian Blur mặc định */
@@ -146,7 +146,7 @@
             cursor: pointer;
         }
 
-        /* NÚT BẤM ZOOM TỪ 0.5x ĐẾN 4.5x */
+        /* DÃY NÚT BẤM ZOOM CHUẨN ĐIỆN THOẠI: 0.5x -> 1.0x -> 2.0x -> 3.0x -> 4.5x */
         .zoom-btn-container {
             display: flex;
             gap: 6px;
@@ -228,7 +228,7 @@
             </div>
         </div>
 
-        <!-- Bảng điều khiển tích hợp nút bấm Zoom -->
+        <!-- Bảng điều khiển tích hợp nút bấm Zoom mới -->
         <div class="controls" id="controls-panel">
             <div class="control-row">
                 <label for="blur-slider">Mờ (Blur):</label>
@@ -238,9 +238,9 @@
                 <label>Phóng (Zoom):</label>
                 <div class="zoom-btn-container">
                     <button class="zoom-btn" data-zoom="0.5">0.5x</button>
-                    <button class="zoom-btn" data-zoom="1.5">1.5x</button>
-                    <button class="zoom-btn" data-zoom="2.5">2.5x</button>
-                    <button class="zoom-btn active" data-zoom="3.5">3.5x</button>
+                    <button class="zoom-btn" data-zoom="1.0">1.0x</button>
+                    <button class="zoom-btn" data-zoom="2.0">2.0x</button>
+                    <button class="zoom-btn active" data-zoom="3.0">3.0x</button>
                     <button class="zoom-btn" data-zoom="4.5">4.5x</button>
                 </div>
             </div>
@@ -260,8 +260,8 @@
 
         let wakeLock = null;
 
-        // Thiết lập giá trị Zoom mặc định ban đầu là 3.5x (Bạn có thể đổi sang nút khác nếu muốn)
-        document.documentElement.style.setProperty('--zoom-level', '3.5');
+        // Thiết lập giá trị Zoom mặc định ban đầu là 3.0x khi mở app
+        document.documentElement.style.setProperty('--zoom-level', '3.0');
 
         // Giữ sáng màn hình
         async function requestWakeLock() {
