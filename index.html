@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>VR Blurred Back Camera</title>
+    <!-- Khai báo Web App để ép iOS ẩn thanh địa chỉ khi lưu ra màn hình chính -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>VR Camera Simulator</title>
     <style>
         * {
             box-sizing: border-box;
@@ -13,15 +16,13 @@
 
         body, html {
             width: 100%;
-            /* Sử dụng dvh (dynamic viewport height) để tự trừ đi thanh công cụ của trình duyệt */
             height: 100dvh; 
             overflow: hidden;
             background-color: #000;
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             position: fixed;
         }
 
-        /* #stage bọc toàn bộ nội dung */
         #stage {
             position: absolute;
             top: 0;
@@ -30,7 +31,7 @@
             height: 100%;
         }
 
-        /* Container chia đôi màn hình cho VR box */
+        /* Container chia đôi màn hình VR */
         .vr-container {
             position: absolute;
             top: 0;
@@ -42,7 +43,41 @@
             z-index: 1;
         }
 
-        /* Xử lý khi điện thoại ở chế độ dọc */
+        /* Khung nhìn từng mắt */
+        .eye {
+            width: 50%;
+            height: 100%;
+            overflow: hidden;
+            position: relative;
+            background: #000;
+        }
+
+        /* Thẻ video hiển thị cam sau */
+        video {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            /* Sử dụng biến CSS --zoom-level để thay đổi từ Javascript */
+            width: calc(100% * var(--zoom-level, 3.0)); 
+            height: calc(100% * var(--zoom-level, 3.0)); 
+            object-fit: cover; 
+            
+            /* Gaussian Blur mặc định */
+            filter: blur(15px);
+            -webkit-filter: blur(15px);
+            transition: filter 0.05s linear, width 0.2s ease, height 0.2s ease; /* Thêm hiệu ứng zoom mượt */
+        }
+
+        /* Dịch chuyển tâm ảnh của 2 mắt ngược chiều nhau để chập hình */
+        .eye-left video {
+            transform: translate(-45%, -50%);
+        }
+
+        .eye-right video {
+            transform: translate(-55%, -50%);
+        }
+
+        /* Xử lý xoay màn hình ngang khi điện thoại ở chế độ dọc */
         @media screen and (orientation: portrait) {
             #stage {
                 width: 100vh;
@@ -53,75 +88,103 @@
                 transform-origin: center center;
                 transform: translate(-50%, -50%) rotate(90deg);
             }
-            video {
-                transform: rotate(-90deg);
+            .eye-left video {
+                transform: translate(-45%, -50%) rotate(-90deg);
+            }
+            .eye-right video {
+                transform: translate(-55%, -50%) rotate(-90deg);
             }
         }
 
-        /* Xử lý khi điện thoại ở chế độ ngang */
-        @media screen and (orientation: landscape) {
-            video {
-                transform: rotate(0deg);
-            }
-        }
-
-        /* Mỗi bên chiếm đúng 50% chiều rộng */
-        .eye {
-            width: 50%;
-            height: 100%;
-            overflow: hidden;
-            position: relative;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        /* Thẻ video hiển thị cam sau */
-        video {
-            width: 160%; 
-            height: 160%;
-            object-fit: cover; 
-            transform-origin: center center;
-
-            /* Gaussian Blur mặc định */
-            filter: blur(15px);
-            -webkit-filter: blur(15px);
-            transition: filter 0.1s ease;
-        }
-
-        /* Thanh điều khiển độ mờ */
+        /* Bảng điều khiển controls hiện đại */
         .controls {
             position: absolute;
-            bottom: 40px;
+            bottom: 30px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 10;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 15px 30px;
-            border-radius: 40px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 25px;
+            border-radius: 25px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 85%;
+            max-width: 420px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        /* Lớp CSS dùng để ẩn nhanh bảng điều khiển khi chạm màn hình */
+        .controls.hidden {
+            opacity: 0;
+            transform: translate(-50%, 20px);
+            pointer-events: none; /* Không cho click khi đã ẩn */
+        }
+
+        .control-row {
             display: flex;
             align-items: center;
             gap: 15px;
-            width: 85%;
-            max-width: 450px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            justify-content: space-between;
         }
 
         .controls label {
             color: #fff;
-            font-size: 16px;
+            font-size: 14px;
             white-space: nowrap;
             font-weight: bold;
+            min-width: 80px;
         }
 
         .controls input[type="range"] {
             flex-grow: 1;
             accent-color: #007bff; 
-            height: 8px;
+            height: 6px;
             cursor: pointer;
         }
 
-        /* Màn hình phủ yêu cầu nhấn */
+        /* THIẾT KẾ NÚT BẤM ZOOM KIỂU ĐIỆN ẢNH CHUYÊN NGHIỆP */
+        .zoom-btn-container {
+            display: flex;
+            gap: 8px;
+        }
+
+        .zoom-btn {
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            width: 42px;
+            height: 42px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .zoom-btn.active {
+            background: #007bff;
+            border-color: #007bff;
+            box-shadow: 0 0 8px rgba(0, 123, 255, 0.6);
+            transform: scale(1.1);
+        }
+
+        /* Gợi ý chạm màn hình */
+        .tip-text {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 11px;
+            text-align: center;
+            width: 100%;
+        }
+
+        /* Màn hình phủ bắt đầu */
         #start-overlay {
             position: fixed;
             top: 0;
@@ -151,11 +214,12 @@
 <body>
 
     <div id="start-overlay">
-        <button id="start-btn">BẮT ĐẦU VR</button>
+        <button id="start-btn">BẮT ĐẦU VÀO VR</button>
     </div>
 
     <div id="stage">
-        <div class="vr-container">
+        <!-- Chạm vào vùng này để ẩn/hiện thanh điều khiển -->
+        <div class="vr-container" id="vr-screen">
             <div class="eye eye-left">
                 <video id="webcam-left" autoplay playsinline muted></video>
             </div>
@@ -164,9 +228,23 @@
             </div>
         </div>
 
-        <div class="controls">
-            <label for="blur-slider">Mờ:</label>
-            <input type="range" id="blur-slider" min="0" max="80" value="15">
+        <!-- Bảng điều khiển tích hợp nút bấm Zoom -->
+        <div class="controls" id="controls-panel">
+            <div class="control-row">
+                <label for="blur-slider">Mờ (Blur):</label>
+                <input type="range" id="blur-slider" min="0" max="80" value="15">
+            </div>
+            <div class="control-row">
+                <label>Phóng (Zoom):</label>
+                <!-- Hệ thống nút bấm Zoom thay cho thanh trượt -->
+                <div class="zoom-btn-container">
+                    <button class="zoom-btn" data-zoom="1.5">1.5x</button>
+                    <button class="zoom-btn" data-zoom="2.5">2.5x</button>
+                    <button class="zoom-btn active" data-zoom="3.5">3.5x</button>
+                    <button class="zoom-btn" data-zoom="4.5">4.5x</button>
+                </div>
+            </div>
+            <div class="tip-text">Chạm vào màn hình để Ẩn / Hiện bảng điều khiển này</div>
         </div>
     </div>
 
@@ -174,47 +252,40 @@
         const videoLeft = document.getElementById('webcam-left');
         const videoRight = document.getElementById('webcam-right');
         const blurSlider = document.getElementById('blur-slider');
+        const zoomButtons = document.querySelectorAll('.zoom-btn');
+        const controlsPanel = document.getElementById('controls-panel');
+        const vrScreen = document.getElementById('vr-screen');
         const startOverlay = document.getElementById('start-overlay');
         const startBtn = document.getElementById('start-btn');
 
         let wakeLock = null;
 
-        // Giữ màn hình luôn sáng
+        // Thiết lập giá trị Zoom ban đầu là 3.5x
+        document.documentElement.style.setProperty('--zoom-level', '3.5');
+
+        // Giữ sáng màn hình
         async function requestWakeLock() {
             try {
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
-                    document.addEventListener('visibilitychange', async () => {
-                        if (wakeLock !== null && document.visibilityState === 'visible') {
-                            wakeLock = await navigator.wakeLock.request('screen');
-                        }
-                    });
                 }
             } catch (err) {
                 console.error(err);
             }
         }
 
-        // Kích hoạt Toàn màn hình chuẩn xác cao cho thiết bị di động
+        // Toàn màn hình ẩn thanh điều hướng iOS
         function enableFullscreen() {
-            // Đưa toàn bộ thẻ BODY vào chế độ toàn màn hình để triệt tiêu mọi thanh điều hướng bên ngoài
             const element = document.body; 
-            
             if (element.requestFullscreen) {
                 element.requestFullscreen();
-            } else if (element.webkitRequestFullscreen) { /* Ép mượt cho Safari iOS */
+            } else if (element.webkitRequestFullscreen) {
                 element.webkitRequestFullscreen();
-            } else if (element.mozRequestFullScreen) {
-                element.mozRequestFullScreen();
-            } else if (element.msRequestFullscreen) {
-                element.msRequestFullscreen();
             }
-
-            // Mẹo bổ sung: Tự động cuộn nhẹ trang web để kích hoạt tính năng tự ẩn thanh URL của trình duyệt di động
             window.scrollTo(0, 1);
         }
 
-        // Kích hoạt Camera
+        // Mở Camera sau
         async function initCamera() {
             const constraints = {
                 video: {
@@ -231,10 +302,7 @@
                 videoRight.srcObject = stream;
             } catch (error) {
                 try {
-                    const fallbackConstraints = {
-                        video: { facingMode: "environment" },
-                        audio: false
-                    };
+                    const fallbackConstraints = { video: { facingMode: "environment" }, audio: false };
                     const stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
                     videoLeft.srcObject = stream;
                     videoRight.srcObject = stream;
@@ -251,6 +319,7 @@
             startOverlay.style.display = 'none';
         });
 
+        // Xử lý chỉnh độ mờ
         blurSlider.addEventListener('input', (e) => {
             const blurValue = e.target.value;
             const blurCss = `blur(${blurValue}px)`;
@@ -258,6 +327,26 @@
             videoLeft.style.webkitFilter = blurCss;
             videoRight.style.filter = blurCss;
             videoRight.style.webkitFilter = blurCss;
+        });
+
+        // XỬ LÝ SỰ KIỆN CHO CÁC NÚT BẤM ZOOM
+        zoomButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                // Xóa trạng thái kích hoạt cũ
+                zoomButtons.forEach(btn => btn.classList.remove('active'));
+                
+                // Kích hoạt nút được bấm
+                button.classList.add('active');
+                
+                // Thay đổi độ thu phóng camera
+                const zoomVal = button.getAttribute('data-zoom');
+                document.documentElement.style.setProperty('--zoom-level', zoomVal);
+            });
+        });
+
+        // CHẠM MÀN HÌNH ĐỂ ẨN / HIỆN NHANH BẢNG ĐIỀU KHIỂN
+        vrScreen.addEventListener('click', () => {
+            controlsPanel.classList.toggle('hidden');
         });
     </script>
 </body>
